@@ -33,9 +33,30 @@ public sealed class RecentFileItem
     public System.Windows.Input.ICommand Command { get; }
 }
 
+/// <summary>マーカー一覧の 1 項目。行番号と、行頭（先頭の空白を除く）の抜粋を持つ。</summary>
+public sealed class MarkerItem
+{
+    public MarkerItem(int lineNumber, string preview)
+    {
+        LineNumber = lineNumber;
+        Preview = preview;
+    }
+
+    /// <summary>元ファイル上の行番号（1 基点）。</summary>
+    public int LineNumber { get; }
+
+    public string Preview { get; }
+
+    public string Display => $"{LineNumber:N0}: {Preview}";
+
+    public override string ToString() => Display;
+}
+
 public sealed class MainViewModel : ObservableObject
 {
     private const int MaxRecentFiles = 12;
+    private const int MaxContextLines = 1000;
+    private const int MarkerPreviewLength = 160;
     private const string ClipboardDisplayName = "クリップボード";
 
     private readonly SettingsService _settingsService;
@@ -46,6 +67,23 @@ public sealed class MainViewModel : ObservableObject
     private CancellationTokenSource? _loadCts;
     private CancellationTokenSource? _filterCts;
     private bool _initializing;
+
+    /// <summary>直近の照合結果。前後行数の変更や個別展開はこれを使い回して再照合を避ける。</summary>
+    private bool[]? _hits;
+    private int _hitCount;
+
+    private readonly List<LineRange> _expansions = new();
+
+    private static int CountHits(bool[]? hits, int lineCount)
+    {
+        if (hits is null) return lineCount;
+        int count = 0;
+        for (int i = 0; i < hits.Length; i++)
+        {
+            if (hits[i]) count++;
+        }
+        return count;
+    }
 
     public MainViewModel(SettingsService settingsService, AppSettings settings)
     {
@@ -84,10 +122,13 @@ public sealed class MainViewModel : ObservableObject
         ResetFontCommand = new RelayCommand(() => FontSize = 13);
         SavePresetCommand = new RelayCommand(SavePreset);
         DeletePresetCommand = new RelayCommand(DeletePreset, () => SelectedPreset is not null);
+        ClearExpansionsCommand = new RelayCommand(ClearExpansions, () => _expansions.Count > 0);
+        ClearMarkersCommand = new RelayCommand(ClearMarkers, () => _markedLines.Count > 0);
+        RemoveMarkerCommand = new RelayCommand(RemoveSelectedMarker, () => SelectedMarker is not null);
         ExitCommand = new RelayCommand(() => Application.Current.Shutdown());
 
         LoadFromSettings();
-        UpdateView(LogDocument.Empty, null, CompiledFilter.Empty);
+        UpdateView(LogDocument.Empty);
     }
 
     #region コマンド
@@ -112,6 +153,9 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand ResetFontCommand { get; }
     public RelayCommand SavePresetCommand { get; }
     public RelayCommand DeletePresetCommand { get; }
+    public RelayCommand ClearExpansionsCommand { get; }
+    public RelayCommand ClearMarkersCommand { get; }
+    public RelayCommand RemoveMarkerCommand { get; }
     public RelayCommand ExitCommand { get; }
 
     #endregion
@@ -606,7 +650,19 @@ public sealed class MainViewModel : ObservableObject
 
     private void ApplyDocument(LogDocument document)
     {
+        // 同じファイルの再読み込みならマーカーは残す。別のログに切り替えたときだけ捨てる。
+        bool sameSource = _document.Source != LogSource.None
+                          && _document.Source == document.Source
+                          && string.Equals(_document.FilePath, document.FilePath, StringComparison.OrdinalIgnoreCase);
+
         _document = document;
+        _hits = null;
+        _expansions.Clear();
+        ClearExpansionsCommand.RaiseCanExecuteChanged();
+
+        if (!sameSource) _markedLines.Clear();
+        RebuildMarkerList();
+
         OnPropertyChanged(nameof(HasDocument));
         OnPropertyChanged(nameof(Title));
         ReloadCommand.RaiseCanExecuteChanged();
@@ -634,7 +690,7 @@ public sealed class MainViewModel : ObservableObject
         _filterCts?.Cancel();
         ApplyDocument(LogDocument.Empty);
         ElapsedText = string.Empty;
-        UpdateView(_document, null, CompiledFilter.Empty);
+        UpdateView(_document);
     }
 
     private void AddRecent(string path)
@@ -679,7 +735,8 @@ public sealed class MainViewModel : ObservableObject
 
         if (!HasDocument)
         {
-            UpdateView(_document, null, CompiledFilter.Empty);
+            _hits = null;
+            UpdateView(_document);
             return;
         }
 
@@ -711,11 +768,15 @@ public sealed class MainViewModel : ObservableObject
         {
             var document = _document;
             var progress = new Progress<double>(v => ProgressValue = v);
-            int[]? map = await Task.Run(() => FilterEngine.Apply(document, filter, progress, cts.Token), cts.Token);
+            bool[]? hits = await Task.Run(() => FilterEngine.Match(document, filter, progress, cts.Token), cts.Token);
             if (cts.Token.IsCancellationRequested) return;
 
             stopwatch.Stop();
-            UpdateView(document, map, filter);
+            _hits = hits;
+            _hitCount = CountHits(hits, document.LineCount);
+            _expansions.Clear();        // 条件が変わったので個別展開は破棄する
+            ClearExpansionsCommand.RaiseCanExecuteChanged();
+            UpdateView(document);
             ElapsedText = $"抽出 {stopwatch.ElapsedMilliseconds:N0} ms";
 
             // 抽出前に見ていた行の位置をできるだけ保つ
@@ -763,13 +824,198 @@ public sealed class MainViewModel : ObservableObject
         return Lines.ToLineNumber(index);
     }
 
-    private void UpdateView(LogDocument document, int[]? map, CompiledFilter filter)
+    private void UpdateView(LogDocument document)
     {
-        Lines = new VirtualLineCollection(document, map);
+        var composition = FilterEngine.Compose(document, _hits, ContextLines, _expansions);
+        Lines = new VirtualLineCollection(document, composition.Map, composition.IsContext, _markedLines);
         SelectedIndex = -1;
         UpdateContentMetrics();
         UpdateHighlight();
         UpdateStatus();
+    }
+
+    /// <summary>
+    /// 照合はやり直さず、表示する行の組み立てだけをやり直す。
+    /// 前後行数の変更や個別展開はこちらだけで済むので、大きなファイルでも即座に反映される。
+    /// </summary>
+    private void RecomposeView()
+    {
+        if (!HasDocument) return;
+
+        int keepLineNumber = CurrentLineNumber();
+        UpdateView(_document);
+
+        if (keepLineNumber > 0)
+        {
+            int index = Lines.FromLineNumber(keepLineNumber);
+            if (index >= 0)
+            {
+                SelectedIndex = index;
+                ScrollRequested?.Invoke(index);
+            }
+        }
+    }
+
+    #endregion
+
+    #region 前後の行 / 個別展開
+
+    private int _contextLines;
+
+    /// <summary>ヒット行の前後に何行を文脈として表示するか。</summary>
+    public int ContextLines
+    {
+        get => _contextLines;
+        private set
+        {
+            if (!SetProperty(ref _contextLines, value)) return;
+            OnPropertyChanged(nameof(ContextLinesText));
+            RecomposeView();
+        }
+    }
+
+    /// <summary>入力欄用。数字以外や範囲外は無視して直前の値を保つ。</summary>
+    public string ContextLinesText
+    {
+        get => _contextLines.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                ContextLines = 0;
+                OnPropertyChanged();
+                return;
+            }
+            if (int.TryParse(value.Trim(), out int parsed))
+            {
+                ContextLines = Math.Clamp(parsed, 0, MaxContextLines);
+            }
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>指定した行の前後を、フィルタとは無関係に一時的に表示する。</summary>
+    public void ExpandAround(IEnumerable<int> lineNumbers, int radius)
+    {
+        if (!HasDocument || _hits is null) return;
+
+        bool added = false;
+        foreach (int lineNumber in lineNumbers)
+        {
+            int center = lineNumber - 1;
+            if (center < 0 || center >= _document.LineCount) continue;
+            _expansions.Add(new LineRange(center - radius, center + radius));
+            added = true;
+        }
+
+        if (!added) return;
+        ClearExpansionsCommand.RaiseCanExecuteChanged();
+        RecomposeView();
+    }
+
+    private void ClearExpansions()
+    {
+        if (_expansions.Count == 0) return;
+        _expansions.Clear();
+        ClearExpansionsCommand.RaiseCanExecuteChanged();
+        RecomposeView();
+    }
+
+    #endregion
+
+    #region マーカー
+
+    private readonly HashSet<int> _markedLines = new();
+
+    public ObservableCollection<MarkerItem> Markers { get; } = new();
+
+    public string MarkerHeader => $"マーカー ({Markers.Count})";
+
+    private MarkerItem? _selectedMarker;
+    public MarkerItem? SelectedMarker
+    {
+        get => _selectedMarker;
+        set
+        {
+            if (!SetProperty(ref _selectedMarker, value)) return;
+            RemoveMarkerCommand.RaiseCanExecuteChanged();
+            if (value is not null) JumpToMarker(value);
+        }
+    }
+
+    /// <summary>選択されている行のマーカーを 1 行ずつ反転させる。</summary>
+    public void ToggleMarkers(IEnumerable<int> lineNumbers)
+    {
+        if (!HasDocument) return;
+
+        bool changed = false;
+        foreach (int lineNumber in lineNumbers)
+        {
+            int lineIndex = lineNumber - 1;
+            if (lineIndex < 0 || lineIndex >= _document.LineCount) continue;
+            if (!_markedLines.Remove(lineIndex)) _markedLines.Add(lineIndex);
+            changed = true;
+        }
+
+        if (changed) RebuildMarkerList();
+    }
+
+    private void ClearMarkers()
+    {
+        if (_markedLines.Count == 0) return;
+        _markedLines.Clear();
+        RebuildMarkerList();
+    }
+
+    private void RemoveSelectedMarker()
+    {
+        if (SelectedMarker is null) return;
+        _markedLines.Remove(SelectedMarker.LineNumber - 1);
+        RebuildMarkerList();
+    }
+
+    private void RebuildMarkerList()
+    {
+        // 再読み込みでファイルが縮んでいることがあるので、範囲外のマーカーは落とす
+        _markedLines.RemoveWhere(i => i < 0 || i >= _document.LineCount);
+
+        _selectedMarker = null;
+        Markers.Clear();
+        foreach (int lineIndex in _markedLines.Order())
+        {
+            Markers.Add(new MarkerItem(lineIndex + 1, MakePreview(_document.GetSpan(lineIndex))));
+        }
+
+        // 一覧の選択は復元しない（復元するとジャンプが再発火してしまう）
+        OnPropertyChanged(nameof(SelectedMarker));
+        OnPropertyChanged(nameof(MarkerHeader));
+        ClearMarkersCommand.RaiseCanExecuteChanged();
+        RemoveMarkerCommand.RaiseCanExecuteChanged();
+        Lines.RefreshMarkers();
+    }
+
+    private static string MakePreview(ReadOnlySpan<char> line)
+    {
+        var trimmed = line.TrimStart();
+        return trimmed.Length <= MarkerPreviewLength
+            ? trimmed.ToString()
+            : string.Concat(trimmed[..MarkerPreviewLength], "…");
+    }
+
+    private void JumpToMarker(MarkerItem marker)
+    {
+        if (Lines.Count == 0) return;
+
+        int index = Lines.FromLineNumberNearest(marker.LineNumber, out bool exact);
+        if (index < 0) return;
+
+        SelectedIndex = index;
+        ScrollRequested?.Invoke(index);
+
+        StatusText = exact
+            ? $"{marker.LineNumber:N0} 行目へ移動しました"
+            : $"{marker.LineNumber:N0} 行目は現在の抽出結果に含まれないため、"
+              + $"最も近い {Lines.ToLineNumber(index):N0} 行目へ移動しました";
     }
 
     #endregion
@@ -850,9 +1096,19 @@ public sealed class MainViewModel : ObservableObject
             ? $"　カーソル行: {Lines.ToLineNumber(SelectedIndex):N0}"
             : string.Empty;
 
-        StatusText = Lines.IsUnfiltered
-            ? $"全 {total:N0} 行（フィルタなし）{position}"
-            : $"全 {total:N0} 行 / 表示 {shown:N0} 行 ({ratio}%){position}";
+        if (Lines.IsUnfiltered)
+        {
+            StatusText = $"全 {total:N0} 行（フィルタなし）{position}";
+        }
+        else if (shown > _hitCount)
+        {
+            StatusText = $"全 {total:N0} 行 / 表示 {shown:N0} 行 ({ratio}%) "
+                       + $"= ヒット {_hitCount:N0} 行 + 前後 {shown - _hitCount:N0} 行{position}";
+        }
+        else
+        {
+            StatusText = $"全 {total:N0} 行 / 表示 {shown:N0} 行 ({ratio}%){position}";
+        }
     }
 
     private static string FormatBytes(long bytes) => bytes switch
@@ -981,6 +1237,7 @@ public sealed class MainViewModel : ObservableObject
             IncludeLogic = _settings.IncludeLogic;
             ExcludeLogic = _settings.ExcludeLogic;
             AutoApply = _settings.AutoApply;
+            ContextLines = Math.Clamp(_settings.ContextLines, 0, MaxContextLines);
             WordWrap = _settings.WordWrap;
             ShowLineNumbers = _settings.ShowLineNumbers;
             HighlightMatches = _settings.HighlightMatches;
@@ -1005,6 +1262,7 @@ public sealed class MainViewModel : ObservableObject
         _settings.IncludeLogic = IncludeLogic;
         _settings.ExcludeLogic = ExcludeLogic;
         _settings.AutoApply = AutoApply;
+        _settings.ContextLines = ContextLines;
         _settings.WordWrap = WordWrap;
         _settings.ShowLineNumbers = ShowLineNumbers;
         _settings.HighlightMatches = HighlightMatches;

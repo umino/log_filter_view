@@ -28,12 +28,17 @@
         <KeyBinding Key="Escape" Command="{Binding CancelCommand}" />
         <KeyBinding Key="F" Modifiers="Control" Command="{x:Static local:MainWindow.FocusSearchCommand}" />
         <KeyBinding Key="G" Modifiers="Control" Command="{x:Static local:MainWindow.FocusGoToCommand}" />
+        <KeyBinding Key="M" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerCommand}" />
     </Window.InputBindings>
 
     <Window.CommandBindings>
         <CommandBinding Command="ApplicationCommands.Copy" Executed="CopyExecuted" CanExecute="CopyCanExecute" />
         <CommandBinding Command="{x:Static local:MainWindow.CopyWithLineNumbersCommand}"
                         Executed="CopyWithLineNumbersExecuted" CanExecute="CopyCanExecute" />
+        <CommandBinding Command="{x:Static local:MainWindow.ToggleMarkerCommand}"
+                        Executed="ToggleMarkerExecuted" CanExecute="SelectionRequired" />
+        <CommandBinding Command="{x:Static local:MainWindow.ExpandAroundCommand}"
+                        Executed="ExpandAroundExecuted" CanExecute="SelectionRequired" />
         <CommandBinding Command="{x:Static local:MainWindow.FocusSearchCommand}" Executed="FocusSearchExecuted" />
         <CommandBinding Command="{x:Static local:MainWindow.FocusGoToCommand}" Executed="FocusGoToExecuted" />
         <CommandBinding Command="{x:Static local:MainWindow.AboutCommand}" Executed="AboutExecuted" />
@@ -76,6 +81,11 @@
                 <MenuItem Header="前を検索(_P)" InputGestureText="Shift+F3" Command="{Binding FindPreviousCommand}" />
                 <MenuItem Header="指定行へ移動(_G)" InputGestureText="Ctrl+G"
                           Command="{x:Static local:MainWindow.FocusGoToCommand}" />
+                <Separator />
+                <MenuItem Header="マーカーの ON/OFF(_M)" InputGestureText="Ctrl+M"
+                          Command="{x:Static local:MainWindow.ToggleMarkerCommand}" />
+                <MenuItem Header="マーカーをすべて解除" Command="{Binding ClearMarkersCommand}" />
+                <MenuItem Header="前後の展開をすべて解除" Command="{Binding ClearExpansionsCommand}" />
             </MenuItem>
 
             <MenuItem Header="表示(_V)">
@@ -177,6 +187,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" Margin="0,0,0,2">
@@ -228,6 +239,13 @@
                         <CheckBox Content="自動適用" IsChecked="{Binding AutoApply}"
                                   ToolTip="入力を止めた少し後に自動で抽出します" />
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0"
+                                ToolTip="ヒット行の前後を文脈として一緒に表示します。前後行は除外語の影響を受けません。">
+                        <TextBlock Text="ヒット行の前後" VerticalAlignment="Center" />
+                        <TextBox Width="46" Margin="6,0" TextAlignment="Right"
+                                 Text="{Binding ContextLinesText, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="行も表示" VerticalAlignment="Center" />
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,10,0,0">
@@ -253,6 +271,36 @@
                            Text="{Binding FilterError}"
                            Visibility="{Binding FilterError, Converter={StaticResource NullToVisibility}}"
                            Foreground="#FFC62828" TextWrapping="Wrap" FontSize="11" />
+
+                <Expander Grid.Row="8" Margin="0,12,0,0" IsExpanded="True"
+                          Header="{Binding MarkerHeader}">
+                    <DockPanel Margin="0,4,0,0">
+                        <Button DockPanel.Dock="Bottom" Content="マーカーをすべて解除" Margin="0,4,0,0"
+                                Padding="6,2" HorizontalAlignment="Left"
+                                Command="{Binding ClearMarkersCommand}" />
+                        <ListBox x:Name="MarkerList"
+                                 MaxHeight="200"
+                                 ItemsSource="{Binding Markers}"
+                                 SelectedItem="{Binding SelectedMarker}"
+                                 DisplayMemberPath="Display"
+                                 HorizontalContentAlignment="Stretch"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 FontFamily="Consolas, MS Gothic"
+                                 ToolTip="クリックするとその行へ移動します（抽出結果に無い場合は最も近い行へ）">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="ToolTip" Value="{Binding Preview}" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="このマーカーを解除" Command="{Binding RemoveMarkerCommand}" />
+                                    <MenuItem Header="すべて解除" Command="{Binding ClearMarkersCommand}" />
+                                </ContextMenu>
+                            </ListBox.ContextMenu>
+                        </ListBox>
+                    </DockPanel>
+                </Expander>
             </Grid>
 
             <GridSplitter x:Name="PaneSplitter" Grid.Column="1" Width="5"
@@ -300,10 +348,30 @@
                          ScrollViewer.VerticalScrollBarVisibility="Visible"
                          ScrollViewer.HorizontalScrollBarVisibility="{Binding WordWrap, Converter={StaticResource WrapToScroll}}">
                     <ListBox.ContextMenu>
+                        <!-- ContextMenu はビジュアルツリー外なので、RoutedCommand には対象を明示する -->
                         <ContextMenu>
-                            <MenuItem Header="コピー" Command="ApplicationCommands.Copy" />
+                            <ContextMenu.Resources>
+                                <Style TargetType="MenuItem">
+                                    <Setter Property="CommandTarget"
+                                            Value="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                </Style>
+                            </ContextMenu.Resources>
+                            <MenuItem Header="コピー" InputGestureText="Ctrl+C" Command="ApplicationCommands.Copy" />
                             <MenuItem Header="行番号付きでコピー"
                                       Command="{x:Static local:MainWindow.CopyWithLineNumbersCommand}" />
+                            <Separator />
+                            <MenuItem Header="マーカーの ON/OFF" InputGestureText="Ctrl+M"
+                                      Command="{x:Static local:MainWindow.ToggleMarkerCommand}" />
+                            <Separator />
+                            <MenuItem Header="この行の前後を展開">
+                                <MenuItem Header="前後 5 行"
+                                          Command="{x:Static local:MainWindow.ExpandAroundCommand}" CommandParameter="5" />
+                                <MenuItem Header="前後 20 行"
+                                          Command="{x:Static local:MainWindow.ExpandAroundCommand}" CommandParameter="20" />
+                                <MenuItem Header="前後 100 行"
+                                          Command="{x:Static local:MainWindow.ExpandAroundCommand}" CommandParameter="100" />
+                            </MenuItem>
+                            <MenuItem Header="展開をすべて解除" Command="{Binding ClearExpansionsCommand}" />
                             <Separator />
                             <MenuItem Header="抽出結果を保存..." Command="{Binding ExportCommand}" />
                         </ContextMenu>

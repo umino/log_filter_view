@@ -105,22 +105,31 @@ public sealed class CompiledFilter
     }
 }
 
+/// <summary>行の範囲（両端を含む、0 基点）。</summary>
+public readonly record struct LineRange(int Start, int End);
+
+/// <summary>
+/// 表示すべき行の一覧と、その各行が「ヒット行」か「前後の文脈行」かの区別。
+/// <see cref="Map"/> が <c>null</c> のときは全行表示を意味する。
+/// </summary>
+public readonly record struct ViewComposition(int[]? Map, bool[]? IsContext);
+
 public static class FilterEngine
 {
     /// <summary>1 チャンクの行数。並列化の粒度と false sharing のバランスを見て決めた値。</summary>
     private const int ChunkSize = 2048;
 
     /// <summary>
-    /// フィルタを適用して、一致した行番号（0 基点）の配列を返す。
-    /// 戻り値が <c>null</c> のときは「全行が対象」を意味し、巨大な連番配列の確保を避ける。
+    /// フィルタを適用して、行ごとの一致有無を返す。
+    /// 戻り値が <c>null</c> のときは「条件なし（全行が対象）」を意味する。
     /// </summary>
-    public static int[]? Apply(LogDocument document, CompiledFilter filter,
-                               IProgress<double>? progress, CancellationToken ct)
+    public static bool[]? Match(LogDocument document, CompiledFilter filter,
+                                IProgress<double>? progress, CancellationToken ct)
     {
         if (filter.IsEmpty) return null;
 
         int lineCount = document.LineCount;
-        if (lineCount == 0) return Array.Empty<int>();
+        if (lineCount == 0) return Array.Empty<bool>();
 
         var hits = new bool[lineCount];
         int chunkCount = (lineCount + ChunkSize - 1) / ChunkSize;
@@ -155,18 +164,70 @@ public static class FilterEngine
         });
 
         ct.ThrowIfCancellationRequested();
+        return hits;
+    }
 
-        int matched = 0;
-        for (int i = 0; i < hits.Length; i++)
+    /// <summary>
+    /// 一致結果から実際に表示する行を組み立てる。
+    /// ヒット行の前後 <paramref name="contextLines"/> 行と、個別に展開を指示された範囲を足し込む。
+    /// 前後行・展開行は除外語の判定を通さない（grep -C と同じく、文脈は無条件に見せる）。
+    /// </summary>
+    /// <remarks>
+    /// 照合をやり直さずに済むので、前後行数の変更や 1 行だけの展開はミリ秒で反映できる。
+    /// </remarks>
+    public static ViewComposition Compose(LogDocument document, bool[]? hits,
+                                          int contextLines, IReadOnlyList<LineRange> expansions)
+    {
+        if (hits is null) return new ViewComposition(null, null);
+
+        int lineCount = document.LineCount;
+        if (lineCount == 0) return new ViewComposition(Array.Empty<int>(), null);
+
+        if (contextLines <= 0 && expansions.Count == 0)
         {
-            if (hits[i]) matched++;
+            return new ViewComposition(ToIndexArray(hits), null);
         }
 
-        var result = new int[matched];
-        int k = 0;
-        for (int i = 0; i < hits.Length; i++)
+        var display = new bool[lineCount];
+
+        // 直前に塗り終えた位置を覚えておき、重なる範囲を二度塗りしない（全体で O(行数)）
+        int filled = -1;
+        for (int i = 0; i < lineCount; i++)
         {
-            if (hits[i]) result[k++] = i;
+            if (!hits[i]) continue;
+            int start = Math.Max(i - contextLines, filled + 1);
+            int end = Math.Min(i + contextLines, lineCount - 1);
+            for (int j = start; j <= end; j++) display[j] = true;
+            if (end > filled) filled = end;
+        }
+
+        foreach (var range in expansions)
+        {
+            int start = Math.Max(0, range.Start);
+            int end = Math.Min(lineCount - 1, range.End);
+            for (int j = start; j <= end; j++) display[j] = true;
+        }
+
+        var map = ToIndexArray(display);
+        var isContext = new bool[map.Length];
+        for (int k = 0; k < map.Length; k++) isContext[k] = !hits[map[k]];
+
+        return new ViewComposition(map, isContext);
+    }
+
+    private static int[] ToIndexArray(bool[] flags)
+    {
+        int count = 0;
+        for (int i = 0; i < flags.Length; i++)
+        {
+            if (flags[i]) count++;
+        }
+
+        var result = new int[count];
+        int k = 0;
+        for (int i = 0; i < flags.Length; i++)
+        {
+            if (flags[i]) result[k++] = i;
         }
         return result;
     }

@@ -35,6 +35,7 @@ public sealed class AppSettings
     public LogicMode IncludeLogic { get; set; } = LogicMode.Or;
     public LogicMode ExcludeLogic { get; set; } = LogicMode.Or;
     public bool AutoApply { get; set; } = true;
+    public int ContextLines { get; set; }
 
     public bool WordWrap { get; set; }
     public bool ShowLineNumbers { get; set; } = true;

@@ -27,6 +27,12 @@ public partial class MainWindow : Window
     public static readonly RoutedUICommand AboutCommand =
         new("バージョン情報", nameof(AboutCommand), typeof(MainWindow));
 
+    public static readonly RoutedUICommand ToggleMarkerCommand =
+        new("マーカーの ON/OFF", nameof(ToggleMarkerCommand), typeof(MainWindow));
+
+    public static readonly RoutedUICommand ExpandAroundCommand =
+        new("この行の前後を展開", nameof(ExpandAroundCommand), typeof(MainWindow));
+
     private readonly MainViewModel _viewModel;
     private readonly AppSettings _settings;
     private ScrollViewer? _listScrollViewer;
@@ -203,6 +209,25 @@ public partial class MainWindow : Window
         MessageBox.Show($"{count:N0} 行を対象にします。時間とメモリを消費しますが続行しますか?\n" +
                         "（全体をファイルに書き出すだけなら「抽出結果を保存」のほうが高速です）",
                         "LogFilterView", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+
+    #endregion
+
+    #region マーカー / 前後の展開
+
+    private void SelectionRequired(object sender, CanExecuteRoutedEventArgs e) =>
+        e.CanExecute = LineList.SelectedItems.Count > 0;
+
+    private void ToggleMarkerExecuted(object sender, ExecutedRoutedEventArgs e) =>
+        _viewModel.ToggleMarkers(SelectedLineNumbers());
+
+    private void ExpandAroundExecuted(object sender, ExecutedRoutedEventArgs e)
+    {
+        if (!int.TryParse(e.Parameter as string, out int radius)) radius = 20;
+        _viewModel.ExpandAround(SelectedLineNumbers(), radius);
+    }
+
+    private List<int> SelectedLineNumbers() =>
+        LineList.SelectedItems.OfType<LineRow>().Select(r => r.LineNumber).ToList();
 
     #endregion
 

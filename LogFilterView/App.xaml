@@ -64,11 +64,26 @@
             <DataTemplate x:Key="LineTemplate">
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="4" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Grid.Column="0"
+                    <!-- マーカーの目印 -->
+                    <Border Grid.Column="0" Margin="0,0,4,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMarked}" Value="True">
+                                        <Setter Property="Background" Value="#FFF57C00" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+
+                    <TextBlock Grid.Column="1"
                                Text="{Binding LineNumberText}"
                                Width="{Binding Tag.LineNumberWidth, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                Visibility="{Binding Tag.LineNumberVisibility, RelativeSource={RelativeSource AncestorType=ListBox}}"
@@ -77,12 +92,23 @@
                                Margin="0,0,8,0"
                                Foreground="#FF8A8A8A" />
 
-                    <TextBlock Grid.Column="1"
+                    <TextBlock Grid.Column="2"
                                VerticalAlignment="Top"
                                TextWrapping="{Binding Tag.TextWrapping, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                MinWidth="{Binding Tag.ContentMinWidth, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                v:TextHighlighter.SourceText="{Binding Text}"
-                               v:TextHighlighter.Rules="{Binding Tag.Highlight, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+                               v:TextHighlighter.Rules="{Binding Tag.Highlight, RelativeSource={RelativeSource AncestorType=ListBox}}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <!-- 条件に一致した行ではなく、前後の文脈として出ている行は淡く表示する -->
+                                    <DataTrigger Binding="{Binding IsContext}" Value="True">
+                                        <Setter Property="Foreground" Value="#FF9E9E9E" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                 </Grid>
             </DataTemplate>
         </ResourceDictionary>
