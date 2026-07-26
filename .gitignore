@@ -1,0 +1,24 @@
+# ビルド成果物
+bin/
+obj/
+publish/
+[Dd]ebug/
+[Rr]elease/
+*.dll
+*.exe
+*.pdb
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Claude Code の個人設定（共有する設定は .claude/settings.json に置く）
+.claude/settings.local.json

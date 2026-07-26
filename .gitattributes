@@ -1,0 +1,13 @@
+# 既定: リポジトリには LF で格納し、チェックアウト時に環境へ合わせる
+* text=auto
+
+*.cs      text diff=csharp
+*.xaml    text
+*.csproj  text
+*.props   text
+*.json    text
+*.md      text
+*.gitignore text
+
+# Visual Studio が CRLF を要求する
+*.sln     text eol=crlf
