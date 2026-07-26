@@ -983,7 +983,7 @@ public sealed class MainViewModel : ObservableObject
         Markers.Clear();
         foreach (int lineIndex in _markedLines.Order())
         {
-            Markers.Add(new MarkerItem(lineIndex + 1, MakePreview(_document.GetSpan(lineIndex))));
+            Markers.Add(new MarkerItem(lineIndex + 1, MakePreview(_document.GetText(lineIndex))));
         }
 
         // 一覧の選択は復元しない（復元するとジャンプが再発火してしまう）
@@ -994,9 +994,9 @@ public sealed class MainViewModel : ObservableObject
         Lines.RefreshMarkers();
     }
 
-    private static string MakePreview(ReadOnlySpan<char> line)
+    private static string MakePreview(string line)
     {
-        var trimmed = line.TrimStart();
+        var trimmed = line.AsSpan().TrimStart();
         return trimmed.Length <= MarkerPreviewLength
             ? trimmed.ToString()
             : string.Concat(trimmed[..MarkerPreviewLength], "…");

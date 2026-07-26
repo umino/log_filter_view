@@ -99,31 +99,40 @@ dotnet publish LogFilterView\LogFilterView.csproj -c Release -r win-x64 `
 
 ## パフォーマンス
 
-106MB / 1,241,722 行の UTF-8 ログでの実測（Windows 11, .NET 8 Release）:
+106MB / 1,241,722 行の UTF-8 ログでの実測（Windows 11, .NET 8 Release、7 回計測の中央値）:
 
 | 処理 | 時間 |
 |---|---|
-| 読み込み + 行インデックス作成 | **116 ms** |
-| 抽出（通常一致 `ERROR`） | **12 ms** |
-| 抽出（通常一致 2 語 + 除外 1 語） | **18 ms** |
-| 抽出（ワイルドカード `*timeout*read*`） | **88 ms** |
-| 抽出（正規表現 `(timeout\|null).*handler`） | **60 ms** |
-| 前後 n 行の再構成（照合はやり直さない） | **4〜8 ms** |
-| 画面 100 行分の実体化 | **0.26 ms** |
+| 読み込み + 行インデックス作成 | **65 ms** |
+| 抽出（通常一致 `ERROR`） | **7 ms** |
+| 抽出（通常一致 2 語 + 除外 1 語） | **10 ms** |
+| 抽出（通常一致・日本語） | **31 ms** |
+| 抽出（ワイルドカード `*timeout*read*`） | **102 ms** |
+| 抽出（正規表現 `(timeout\|null).*handler`） | **86 ms** |
+| 前後 n 行の再構成（照合はやり直さない） | **4〜7 ms** |
+| 画面 100 行分の実体化 | **0.29 ms** |
 
-メモリ使用量は約 400MB（ファイルサイズのおよそ 4 倍）。
+読み込み直後のメモリ使用量は約 **150MB**（ファイルサイズのおよそ 1.4 倍）。
 
 ### 速度を出すための設計
 
 いずれも「行ごとの文字列を作らない」ことが要点です。
 
-1. **1 本の文字列 + 行インデックス** (`Models/LogDocument.cs`)
-   ファイル全体を 1 つの `string` にデコードし、各行は `int[]`（開始位置・長さ）で表す。
-   `List<string>` に 124 万本の文字列を持つ方式に比べ、確保回数も GC 圧力も桁違いに小さい。
+1. **生バイトのまま保持 + 行インデックス** (`Models/LogDocument.cs`)
+   読み込んだ `byte[]` をそのまま持ち、各行は `int[]`（バイト位置・バイト長）で表す。
+   文字列にするのは、画面に見えている行と、照合でデコードが要るときだけ。
+   全体を UTF-16 に展開しないので、常駐メモリはファイルサイズとほぼ同じで済む。
+
+   改行 `0x0A` をバイト列のまま走査できるのは UTF-8 / Shift_JIS / EUC-JP などに限られるため、
+   **UTF-16 / UTF-32 / ISO-2022-JP とクリップボードは、従来どおり全体を 1 本の `string`
+   にする経路**へ自動的に切り替わる（`TextEncodings.IsLineScannable`）。
+   行の取り出し口は `LineAccessor` に統一されているので、利用側はどちらの保持方式かを意識しない。
 
 2. **`ReadOnlySpan<char>` によるマッチング** (`Models/FilterEngine.cs`)
    フィルタ判定は部分文字列を切り出さずスパンのまま行う。2048 行のチャンクに分けて
    `Parallel.For` で全コアを使い、キャンセルと進捗報告に対応。
+   デコード用のバッファは `ArrayPool<char>` から借りてスレッドごとに使い回すため、
+   行あたりの確保コストはゼロ。
 
 3. **表示の完全仮想化** (`Models/VirtualLineCollection.cs`)
    `IList` を実装した仮想コレクションを `VirtualizingStackPanel` に渡すため、
@@ -140,11 +149,11 @@ dotnet publish LogFilterView\LogFilterView.csproj -c Release -r win-x64 `
 ```
 LogFilterView/
 ├── Models/
-│   ├── LogDocument.cs           読み込み(ファイル/クリップボード)・デコード・行インデックス
+│   ├── LogDocument.cs           読み込み(ファイル/クリップボード)・行インデックス・LineAccessor
 │   ├── FilterEngine.cs          フィルタのコンパイルと並列適用
 │   ├── PatternMatcher.cs        通常 / ワイルドカード / 正規表現のマッチャ
 │   ├── VirtualLineCollection.cs 仮想化コレクション（表示・検索・行番号変換）
-│   ├── TextEncodings.cs         文字コード一覧と自動判別
+│   ├── TextEncodings.cs         文字コード一覧・自動判別・バイト走査の可否判定
 │   └── Enums.cs
 ├── Services/
 │   ├── LogExporter.cs           抽出結果の書き出し

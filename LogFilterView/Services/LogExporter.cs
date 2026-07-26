@@ -21,6 +21,9 @@ public static class LogExporter
             using var writer = new StreamWriter(stream, encoding, bufferSize: 1 << 20);
             writer.NewLine = newLine;
 
+            // このスレッド専用のアクセサ（UI 側が使っているものとは共有しない）
+            using var accessor = lines.Document.CreateAccessor();
+
             int count = lines.Count;
             int width = count == 0 ? 1 : lines.ToLineNumber(count - 1).ToString().Length;
             Span<char> numberBuffer = stackalloc char[24];
@@ -39,7 +42,7 @@ public static class LogExporter
                     writer.Write(": ");
                 }
 
-                writer.Write(lines.GetSpan(i));
+                writer.Write(accessor.GetSpan(lines.ToLineIndex(i)));
                 writer.Write(newLine);
 
                 if (progress is not null && count > 0)

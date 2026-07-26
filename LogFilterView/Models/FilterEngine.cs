@@ -143,25 +143,30 @@ public static class FilterEngine
             MaxDegreeOfParallelism = Environment.ProcessorCount,
         };
 
-        Parallel.For(0, chunkCount, options, chunkIndex =>
-        {
-            int start = chunkIndex * ChunkSize;
-            int end = Math.Min(start + ChunkSize, lineCount);
-            for (int i = start; i < end; i++)
+        // デコード用バッファはスレッドごとに 1 つ持ち、チャンクをまたいで使い回す
+        Parallel.For(0, chunkCount, options,
+            () => document.CreateAccessor(),
+            (chunkIndex, _, accessor) =>
             {
-                hits[i] = filter.IsMatch(document.GetSpan(i));
-            }
+                int start = chunkIndex * ChunkSize;
+                int end = Math.Min(start + ChunkSize, lineCount);
+                for (int i = start; i < end; i++)
+                {
+                    hits[i] = filter.IsMatch(accessor.GetSpan(i));
+                }
 
-            if (progress is null) return;
+                if (progress is null) return accessor;
 
-            int done = Interlocked.Increment(ref completed);
-            int percent = (int)(done * 100L / chunkCount);
-            int previous = Volatile.Read(ref reportedPercent);
-            if (percent > previous && Interlocked.CompareExchange(ref reportedPercent, percent, previous) == previous)
-            {
-                progress.Report(percent);
-            }
-        });
+                int done = Interlocked.Increment(ref completed);
+                int percent = (int)(done * 100L / chunkCount);
+                int previous = Volatile.Read(ref reportedPercent);
+                if (percent > previous && Interlocked.CompareExchange(ref reportedPercent, percent, previous) == previous)
+                {
+                    progress.Report(percent);
+                }
+                return accessor;
+            },
+            accessor => accessor.Dispose());
 
         ct.ThrowIfCancellationRequested();
         return hits;

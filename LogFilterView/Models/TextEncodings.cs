@@ -1,6 +1,10 @@
 using System.Text;
+using System.Text.Unicode;
 
 namespace LogFilterView.Models;
+
+/// <summary>文字コードの判定結果。本文のデコードはまだ行っていない。</summary>
+public readonly record struct EncodingDetection(Encoding Encoding, string Name, int PreambleLength);
 
 /// <summary>UI に並べる文字コードの選択肢。</summary>
 public sealed class EncodingChoice
@@ -93,42 +97,58 @@ public static class TextEncodings
     }
 
     /// <summary>
-    /// BOM → 厳密な UTF-8 デコード → Shift_JIS の順で判定し、デコード済み文字列を返す。
-    /// UTF-8 の場合は判定に使ったデコード結果をそのまま使うので二度手間にならない。
+    /// 文字コードだけを判定する。本文はデコードしないので、100MB でも数ミリ秒で終わる。
+    /// 自動判別は「BOM → UTF-8 として妥当か → Shift_JIS」の順。
     /// </summary>
-    public static (string Text, Encoding Encoding, string Name) DecodeAuto(byte[] bytes, int length)
+    public static EncodingDetection Detect(byte[] bytes, int length, EncodingChoice choice)
     {
         EnsureProviderRegistered();
 
+        if (!choice.IsAuto)
+        {
+            var chosen = choice.CreateEncoding();
+            return new EncodingDetection(chosen, choice.DisplayName, GetPreambleLength(chosen, choice, bytes, length));
+        }
+
         var (bomEncoding, bomLength, bomName) = DetectBom(bytes, length);
-        if (bomEncoding is not null)
+        if (bomEncoding is not null) return new EncodingDetection(bomEncoding, bomName, bomLength);
+
+        // 文字列を作らずに UTF-8 として妥当かどうかだけを見る
+        if (Utf8.IsValid(bytes.AsSpan(0, length)))
         {
-            return (bomEncoding.GetString(bytes, bomLength, length - bomLength), bomEncoding, bomName);
+            return new EncodingDetection(new UTF8Encoding(false), "UTF-8", 0);
         }
 
-        // BOM なし: まず UTF-8 として厳密にデコードしてみる（成功すればそれが答え）
-        try
-        {
-            var strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-            string text = strict.GetString(bytes, 0, length);
-            return (text, new UTF8Encoding(false), "UTF-8");
-        }
-        catch (DecoderFallbackException)
-        {
-            // UTF-8 ではない
-        }
-
-        var sjis = Create(932, false);
-        return (sjis.GetString(bytes, 0, length), sjis, "Shift_JIS");
+        return new EncodingDetection(Create(932, false), "Shift_JIS", 0);
     }
 
-    /// <summary>指定した文字コードでデコードする（BOM があれば読み飛ばす）。</summary>
-    public static (string Text, Encoding Encoding, string Name) Decode(byte[] bytes, int length, EncodingChoice choice)
-    {
-        if (choice.IsAuto) return DecodeAuto(bytes, length);
+    /// <summary>判定結果に従って全体をデコードする（UTF-16 系など、行をバイト単位で切れない場合に使う）。</summary>
+    public static string DecodeAll(byte[] bytes, int length, EncodingDetection detection) =>
+        detection.Encoding.GetString(bytes, detection.PreambleLength, length - detection.PreambleLength);
 
-        var encoding = choice.CreateEncoding();
-        int offset = 0;
+    /// <summary>
+    /// 改行 <c>0x0A</c> をバイト列のまま走査してよい文字コードか。
+    /// </summary>
+    /// <remarks>
+    /// 条件は 2 つ。(1) 多バイト文字の途中に 0x0A が現れないこと、
+    /// (2) 行を単独でデコードできること（直前の行の状態に依存しないこと）。
+    /// UTF-16 / UTF-32 は (1) を満たさず、ISO-2022-JP はエスケープシーケンスで状態が変わるため (2) を満たさない。
+    /// 判断を誤ると文字化けするので、安全側に倒して明示的な許可リストにしている。
+    /// </remarks>
+    public static bool IsLineScannable(Encoding encoding) => encoding.CodePage switch
+    {
+        65001 => true,   // UTF-8
+        932 => true,     // Shift_JIS（第 2 バイトは 0x40-0x7E, 0x80-0xFC）
+        51932 => true,   // EUC-JP
+        20932 => true,   // EUC-JP (JIS X 0212)
+        1252 => true,    // Windows-1252
+        28591 => true,   // ISO-8859-1
+        20127 => true,   // US-ASCII
+        _ => false,
+    };
+
+    private static int GetPreambleLength(Encoding encoding, EncodingChoice choice, byte[] bytes, int length)
+    {
         var preamble = encoding.GetPreamble();
         if (preamble.Length > 0 && length >= preamble.Length)
         {
@@ -137,14 +157,12 @@ public static class TextEncodings
             {
                 if (bytes[i] != preamble[i]) { match = false; break; }
             }
-            if (match) offset = preamble.Length;
-        }
-        else if (choice.CodePage == 65001 && HasUtf8Bom(bytes, length))
-        {
-            offset = 3;
+            if (match) return preamble.Length;
         }
 
-        return (encoding.GetString(bytes, offset, length - offset), encoding, choice.DisplayName);
+        // BOM なし指定で開いた UTF-8 ファイルにも BOM が付いていることがある
+        if (choice.CodePage == 65001 && HasUtf8Bom(bytes, length)) return 3;
+        return 0;
     }
 
     private static bool HasUtf8Bom(byte[] b, int len) =>

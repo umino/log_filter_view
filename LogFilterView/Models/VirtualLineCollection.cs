@@ -169,33 +169,38 @@ public sealed class VirtualLineCollection : IList, IReadOnlyList<LineRow>
     {
         if (Count == 0) return -1;
 
+        using var accessor = _document.CreateAccessor();
+
         if (forward)
         {
             for (int i = Math.Max(0, startViewIndex); i < Count; i++)
             {
-                if (matcher.IsMatch(GetSpan(i))) return i;
+                if (matcher.IsMatch(accessor.GetSpan(ToLineIndex(i)))) return i;
             }
             for (int i = 0; i < Math.Min(startViewIndex, Count); i++)
             {
-                if (matcher.IsMatch(GetSpan(i))) return i;
+                if (matcher.IsMatch(accessor.GetSpan(ToLineIndex(i)))) return i;
             }
         }
         else
         {
             for (int i = Math.Min(startViewIndex, Count - 1); i >= 0; i--)
             {
-                if (matcher.IsMatch(GetSpan(i))) return i;
+                if (matcher.IsMatch(accessor.GetSpan(ToLineIndex(i)))) return i;
             }
             for (int i = Count - 1; i > Math.Max(-1, startViewIndex); i--)
             {
-                if (matcher.IsMatch(GetSpan(i))) return i;
+                if (matcher.IsMatch(accessor.GetSpan(ToLineIndex(i)))) return i;
             }
         }
         return -1;
     }
 
-    /// <summary>行テキストを文字列化せずに参照する。</summary>
-    public ReadOnlySpan<char> GetSpan(int viewIndex) => _document.GetSpan(_map is null ? viewIndex : _map[viewIndex]);
+    /// <summary>表示位置 → 元ファイル上の行インデックス（0 基点）。</summary>
+    public int ToLineIndex(int viewIndex) => _map is null ? viewIndex : _map[viewIndex];
+
+    /// <summary>この表示の元になっているドキュメント。</summary>
+    public LogDocument Document => _document;
 
     private static int ComputeMaxLineLength(LogDocument document, int[]? map)
     {
