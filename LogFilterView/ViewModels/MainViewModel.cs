@@ -122,6 +122,9 @@ public sealed class MainViewModel : ObservableObject
         ResetFontCommand = new RelayCommand(() => FontSize = 13);
         SavePresetCommand = new RelayCommand(SavePreset);
         DeletePresetCommand = new RelayCommand(DeletePreset, () => SelectedPreset is not null);
+        OpenProjectCommand = new AsyncRelayCommand(OpenProjectWithDialogAsync);
+        SaveProjectCommand = new RelayCommand(SaveProject, CanSaveProject);
+        SaveProjectAsCommand = new RelayCommand(SaveProjectAs, CanSaveProject);
         ClearExpansionsCommand = new RelayCommand(ClearExpansions, () => _expansions.Count > 0);
         ClearMarkersCommand = new RelayCommand(ClearMarkers, () => _markedLines.Count > 0);
         RemoveMarkerCommand = new RelayCommand(RemoveSelectedMarker, () => SelectedMarker is not null);
@@ -153,6 +156,9 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand ResetFontCommand { get; }
     public RelayCommand SavePresetCommand { get; }
     public RelayCommand DeletePresetCommand { get; }
+    public AsyncRelayCommand OpenProjectCommand { get; }
+    public RelayCommand SaveProjectCommand { get; }
+    public RelayCommand SaveProjectAsCommand { get; }
     public RelayCommand ClearExpansionsCommand { get; }
     public RelayCommand ClearMarkersCommand { get; }
     public RelayCommand RemoveMarkerCommand { get; }
@@ -400,9 +406,16 @@ public sealed class MainViewModel : ObservableObject
         private set => SetProperty(ref _elapsedText, value);
     }
 
-    public string Title => HasDocument
-        ? $"{_document.DisplayName} - LogFilterView"
-        : "LogFilterView";
+    public string Title
+    {
+        get
+        {
+            string project = _projectPath is null ? string.Empty : $" [{ProjectDisplayName}]";
+            return HasDocument
+                ? $"{_document.DisplayName}{project} - LogFilterView"
+                : $"LogFilterView{project}";
+        }
+    }
 
     #endregion
 
@@ -663,13 +676,216 @@ public sealed class MainViewModel : ObservableObject
         if (!sameSource) _markedLines.Clear();
         RebuildMarkerList();
 
+        // プロジェクトが参照していたログとは別のものを開いたら、関連付けを外す。
+        // そうしないと「プロジェクトを保存」が別のログを指すよう黙って書き換えてしまう。
+        if (!_restoringProject && _projectPath is not null
+            && !string.Equals(document.FilePath, _projectLogPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _projectPath = null;
+            _projectLogPath = null;
+        }
+
         OnPropertyChanged(nameof(HasDocument));
         OnPropertyChanged(nameof(Title));
         ReloadCommand.RaiseCanExecuteChanged();
         CloseFileCommand.RaiseCanExecuteChanged();
         ExportCommand.RaiseCanExecuteChanged();
         ExportWithLineNumbersCommand.RaiseCanExecuteChanged();
+        SaveProjectCommand.RaiseCanExecuteChanged();
+        SaveProjectAsCommand.RaiseCanExecuteChanged();
     }
+
+    #endregion
+
+    #region プロジェクト
+
+    private string? _projectPath;
+    private string? _projectLogPath;
+    private bool _restoringProject;
+
+    public string ProjectDisplayName =>
+        _projectPath is null ? string.Empty : Path.GetFileNameWithoutExtension(_projectPath);
+
+    private bool CanSaveProject() => HasDocument && _document.Source == LogSource.File;
+
+    private async Task OpenProjectWithDialogAsync()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "プロジェクトを開く",
+            Filter = ProjectFile.FilterText,
+            DefaultExt = ProjectFile.Extension,
+            CheckFileExists = true,
+        };
+        if (dialog.ShowDialog(Application.Current.MainWindow) != true) return;
+        await OpenProjectAsync(dialog.FileName);
+    }
+
+    /// <summary>
+    /// プロジェクトを読み込み、抽出条件・マーカー・表示設定を復元する。
+    /// 参照先のログが見つからない場合はエラーにして何も変更しない。
+    /// </summary>
+    public async Task OpenProjectAsync(string path)
+    {
+        ProjectFile project;
+        try
+        {
+            project = ProjectService.Load(path);
+        }
+        catch (ProjectLoadException ex)
+        {
+            MessageBox.Show(ex.Message, "LogFilterView", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        string logPath = ProjectService.ResolveLogPath(path, project);
+        if (logPath.Length == 0)
+        {
+            MessageBox.Show(
+                "プロジェクトが参照しているログファイルが見つかりません。\n\n" +
+                $"記録されているパス:\n{project.LogFilePath}",
+                "LogFilterView", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        _restoringProject = true;
+        _initializing = true;
+        try
+        {
+            IncludeText = project.IncludeText;
+            ExcludeText = project.ExcludeText;
+            Mode = project.Mode;
+            CaseSensitive = project.CaseSensitive;
+            IncludeLogic = project.IncludeLogic;
+            ExcludeLogic = project.ExcludeLogic;
+            ContextLines = Math.Clamp(project.ContextLines, 0, MaxContextLines);
+            SelectedEncoding = TextEncodings.FromKey(project.EncodingKey);
+            WordWrap = project.WordWrap;
+            ShowLineNumbers = project.ShowLineNumbers;
+            HighlightMatches = project.HighlightMatches;
+            if (project.FontSize >= 6) FontSize = project.FontSize;
+            if (!string.IsNullOrWhiteSpace(project.FontFamily)) FontFamilyName = project.FontFamily;
+            SearchText = project.SearchText;
+        }
+        finally
+        {
+            _initializing = false;
+        }
+
+        try
+        {
+            // ここでログの読み込みと抽出まで済む
+            await OpenAsync(logPath);
+            if (!HasDocument) return;
+
+            // マーカーは本文が読めるようになってから復元する
+            _markedLines.Clear();
+            foreach (int lineNumber in project.Markers)
+            {
+                int lineIndex = lineNumber - 1;
+                if (lineIndex >= 0 && lineIndex < _document.LineCount) _markedLines.Add(lineIndex);
+            }
+            RebuildMarkerList();
+
+            _projectPath = path;
+            _projectLogPath = logPath;
+        }
+        finally
+        {
+            _restoringProject = false;
+        }
+
+        OnPropertyChanged(nameof(Title));
+        SaveProjectCommand.RaiseCanExecuteChanged();
+        SaveProjectAsCommand.RaiseCanExecuteChanged();
+
+        if (project.CursorLineNumber > 0 && Lines.Count > 0)
+        {
+            int index = Lines.FromLineNumberNearest(project.CursorLineNumber, out _);
+            if (index >= 0)
+            {
+                SelectedIndex = index;
+                ScrollRequested?.Invoke(index);
+            }
+        }
+
+        int dropped = project.Markers.Count - _markedLines.Count;
+        StatusText = dropped > 0
+            ? $"プロジェクト「{ProjectDisplayName}」を読み込みました（{dropped:N0} 件のマーカーは行数の範囲外のため除外）"
+            : $"プロジェクト「{ProjectDisplayName}」を読み込みました";
+    }
+
+    private void SaveProject()
+    {
+        if (!CanSaveProject()) return;
+        if (_projectPath is null) { SaveProjectAs(); return; }
+        SaveProjectTo(_projectPath);
+    }
+
+    private void SaveProjectAs()
+    {
+        if (!CanSaveProject()) return;
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "プロジェクトを保存",
+            FileName = _projectPath is not null
+                ? Path.GetFileName(_projectPath)
+                : Path.GetFileNameWithoutExtension(_document.FilePath) + ProjectFile.Extension,
+            Filter = ProjectFile.FilterText,
+            DefaultExt = ProjectFile.Extension,
+            AddExtension = true,
+        };
+        if (dialog.ShowDialog(Application.Current.MainWindow) != true) return;
+        SaveProjectTo(dialog.FileName);
+    }
+
+    /// <summary>現在の状態を指定パスへプロジェクトとして書き出し、以後の保存先にする。</summary>
+    public void SaveProjectTo(string path)
+    {
+        try
+        {
+            ProjectService.Save(path, BuildProject());
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"プロジェクトの保存に失敗しました。\n{ex.Message}", "LogFilterView",
+                            MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        _projectPath = path;
+        _projectLogPath = _document.FilePath;
+        OnPropertyChanged(nameof(Title));
+        SaveProjectCommand.RaiseCanExecuteChanged();
+        SaveProjectAsCommand.RaiseCanExecuteChanged();
+        StatusText = $"プロジェクトを保存しました: {path}";
+    }
+
+    private ProjectFile BuildProject() => new()
+    {
+        LogFilePath = _document.FilePath,
+        EncodingKey = SelectedEncoding.Key,
+        IncludeText = IncludeText,
+        ExcludeText = ExcludeText,
+        Mode = Mode,
+        CaseSensitive = CaseSensitive,
+        IncludeLogic = IncludeLogic,
+        ExcludeLogic = ExcludeLogic,
+        ContextLines = ContextLines,
+        Markers = _markedLines.Order().Select(i => i + 1).ToList(),
+        WordWrap = WordWrap,
+        ShowLineNumbers = ShowLineNumbers,
+        HighlightMatches = HighlightMatches,
+        FontSize = FontSize,
+        FontFamily = FontFamilyName,
+        SearchText = SearchText,
+        CursorLineNumber = Math.Max(0, CurrentLineNumber()),
+    };
+
+    #endregion
+
+    #region 再読み込み / 最近使ったファイル
 
     private async Task ReloadAsync()
     {

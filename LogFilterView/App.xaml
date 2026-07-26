@@ -59,18 +59,25 @@
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
+                <Style.Triggers>
+                    <!-- 横スクロールで左端の帯が見えなくなっても分かるように、行全体を淡く塗る -->
+                    <DataTrigger Binding="{Binding IsMarked}" Value="True">
+                        <Setter Property="Background" Value="#FFFFF1DC" />
+                    </DataTrigger>
+                </Style.Triggers>
             </Style>
 
             <DataTemplate x:Key="LineTemplate">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="4" />
+                        <!-- マーカー帯 4px + 余白 5px。列幅が帯とマージンの合計より狭いと帯が潰れる -->
+                        <ColumnDefinition Width="9" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
                     <!-- マーカーの目印 -->
-                    <Border Grid.Column="0" Margin="0,0,4,0">
+                    <Border Grid.Column="0" Width="4" HorizontalAlignment="Left" CornerRadius="2">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Setter Property="Background" Value="Transparent" />
@@ -89,8 +96,19 @@
                                Visibility="{Binding Tag.LineNumberVisibility, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                TextAlignment="Right"
                                VerticalAlignment="Top"
-                               Margin="0,0,8,0"
-                               Foreground="#FF8A8A8A" />
+                               Margin="0,0,8,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="#FF8A8A8A" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMarked}" Value="True">
+                                        <Setter Property="Foreground" Value="#FFE65100" />
+                                        <Setter Property="FontWeight" Value="Bold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 
                     <TextBlock Grid.Column="2"
                                VerticalAlignment="Top"

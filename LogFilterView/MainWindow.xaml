@@ -13,6 +13,8 @@
     <Window.InputBindings>
         <KeyBinding Key="O" Modifiers="Control" Command="{Binding OpenCommand}" />
         <KeyBinding Key="V" Modifiers="Control+Shift" Command="{Binding PasteFromClipboardCommand}" />
+        <KeyBinding Key="O" Modifiers="Control+Shift" Command="{Binding OpenProjectCommand}" />
+        <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveProjectCommand}" />
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding ExportCommand}" />
         <KeyBinding Key="F5" Command="{Binding ReloadCommand}" />
         <KeyBinding Key="Return" Modifiers="Control" Command="{Binding ApplyFilterCommand}" />
@@ -48,6 +50,14 @@
 
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="ファイル(_F)">
+                <MenuItem Header="プロジェクトを開く(_J)..." InputGestureText="Ctrl+Shift+O"
+                          Command="{Binding OpenProjectCommand}" />
+                <MenuItem Header="プロジェクトを保存(_K)" InputGestureText="Ctrl+Shift+S"
+                          Command="{Binding SaveProjectCommand}"
+                          ToolTip="抽出条件・マーカー・表示設定を保存します（ログ本体は含みません）" />
+                <MenuItem Header="プロジェクトを名前を付けて保存(_A)..."
+                          Command="{Binding SaveProjectAsCommand}" />
+                <Separator />
                 <MenuItem Header="開く(_O)..." InputGestureText="Ctrl+O" Command="{Binding OpenCommand}" />
                 <MenuItem Header="クリップボードから読み込み(_V)" InputGestureText="Ctrl+Shift+V"
                           Command="{Binding PasteFromClipboardCommand}" />
@@ -114,6 +124,11 @@
                 <Button Content="クリップボード" Command="{Binding PasteFromClipboardCommand}"
                         ToolTip="クリップボードのテキストを読み込む (Ctrl+Shift+V)" />
                 <Button Content="再読込" Command="{Binding ReloadCommand}" ToolTip="再読み込み (F5)" />
+                <Separator />
+                <Button Content="プロジェクトを開く" Command="{Binding OpenProjectCommand}"
+                        ToolTip="保存した抽出条件・マーカーを読み込む (Ctrl+Shift+O)" />
+                <Button Content="プロジェクトを保存" Command="{Binding SaveProjectCommand}"
+                        ToolTip="抽出条件・マーカー・表示設定を保存する (Ctrl+Shift+S)" />
                 <Separator />
                 <TextBlock Text="文字コード" VerticalAlignment="Center" Margin="4,0" />
                 <ComboBox ItemsSource="{Binding Encodings}"

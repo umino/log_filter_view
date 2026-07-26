@@ -284,7 +284,11 @@ public partial class MainWindow : Window
         base.OnDrop(e);
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: > 0 } files) return;
         e.Handled = true;
-        _ = _viewModel.OpenAsync(files[0]);
+
+        string path = files[0];
+        _ = ProjectService.IsProjectPath(path)
+            ? _viewModel.OpenProjectAsync(path)
+            : _viewModel.OpenAsync(path);
     }
 
     #endregion

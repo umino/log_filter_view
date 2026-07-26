@@ -30,7 +30,10 @@ public partial class App : Application
 
         if (e.Args.Length > 0)
         {
-            _ = _viewModel.OpenAsync(e.Args[0]);
+            string path = e.Args[0];
+            _ = ProjectService.IsProjectPath(path)
+                ? _viewModel.OpenProjectAsync(path)
+                : _viewModel.OpenAsync(path);
         }
     }
 
