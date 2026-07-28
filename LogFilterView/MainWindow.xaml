@@ -191,103 +191,137 @@
                 <ColumnDefinition Width="*" MinWidth="240" />
             </Grid.ColumnDefinitions>
 
-            <!-- 抽出条件ペイン -->
+            <!--
+                左ペインは「いつ反映されるか」で 3 つに分ける。
+                  抽出条件 … 適用ボタン（または自動適用）で反映
+                  表示     … 変更した瞬間に反映
+                  マーカー … 行に付ける印
+            -->
             <Grid x:Name="FilterPane" Margin="8,8,4,8">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" MinHeight="60" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" MinHeight="60" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" MinHeight="240" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <DockPanel Grid.Row="0" Margin="0,0,0,2">
-                    <TextBlock Text="含む (positive words)" Style="{StaticResource SectionHeader}" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <RadioButton Content="OR" GroupName="IncLogic" Margin="0,0,6,0" VerticalAlignment="Center"
-                                     IsChecked="{Binding IncludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=Or}"
-                                     ToolTip="いずれかに一致する行を表示" />
-                        <RadioButton Content="AND" GroupName="IncLogic" VerticalAlignment="Center"
-                                     IsChecked="{Binding IncludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=And}"
-                                     ToolTip="すべてに一致する行を表示" />
+                <!-- ===== 適用するまで反映されないもの ===== -->
+                <GroupBox Grid.Row="0" Header="抽出条件" Padding="6,2,6,6">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" MinHeight="54" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" MinHeight="54" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <DockPanel Grid.Row="0" Margin="0,2,0,6">
+                            <TextBlock Text="プリセット" VerticalAlignment="Center" Margin="0,0,6,0"
+                                       Foreground="#FF666666" />
+                            <Button DockPanel.Dock="Right" Content="削除" Command="{Binding DeletePresetCommand}"
+                                    Padding="8,1" Margin="4,0,0,0" />
+                            <Button DockPanel.Dock="Right" Content="保存" Command="{Binding SavePresetCommand}"
+                                    Padding="8,1" Margin="4,0,0,0"
+                                    ToolTip="下の条件をまとめて名前を付けて保存します" />
+                            <ComboBox ItemsSource="{Binding Presets}"
+                                      SelectedItem="{Binding SelectedPreset}"
+                                      DisplayMemberPath="Name"
+                                      ToolTip="選ぶと下の条件がまとめて入れ替わります" />
+                        </DockPanel>
+
+                        <DockPanel Grid.Row="1" Margin="0,0,0,2">
+                            <TextBlock Text="含む (positive words)" Style="{StaticResource SectionHeader}" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <RadioButton Content="OR" GroupName="IncLogic" Margin="0,0,6,0" VerticalAlignment="Center"
+                                             IsChecked="{Binding IncludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=Or}"
+                                             ToolTip="いずれかに一致する行を表示" />
+                                <RadioButton Content="AND" GroupName="IncLogic" VerticalAlignment="Center"
+                                             IsChecked="{Binding IncludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=And}"
+                                             ToolTip="すべてに一致する行を表示" />
+                            </StackPanel>
+                        </DockPanel>
+
+                        <TextBox Grid.Row="2" Style="{StaticResource PatternBox}"
+                                 Text="{Binding IncludeText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="1 行に 1 パターン。空欄なら全行が対象。# で始まる行はコメント。" />
+
+                        <DockPanel Grid.Row="3" Margin="0,10,0,2">
+                            <TextBlock Text="除外 (negative words)" Style="{StaticResource SectionHeader}" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <RadioButton Content="OR" GroupName="ExcLogic" Margin="0,0,6,0" VerticalAlignment="Center"
+                                             IsChecked="{Binding ExcludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=Or}"
+                                             ToolTip="いずれかに一致する行を隠す" />
+                                <RadioButton Content="AND" GroupName="ExcLogic" VerticalAlignment="Center"
+                                             IsChecked="{Binding ExcludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=And}"
+                                             ToolTip="すべてに一致する行だけを隠す" />
+                            </StackPanel>
+                        </DockPanel>
+
+                        <TextBox Grid.Row="4" Style="{StaticResource PatternBox}"
+                                 Text="{Binding ExcludeText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="ここに一致した行は、含む条件を満たしていても表示しません。" />
+
+                        <StackPanel Grid.Row="5" Margin="0,10,0,0"
+                                    ToolTip="含む・除外の書き方を決めます。右上の検索ボックスにも同じ設定が使われます。">
+                            <TextBlock Text="パターンの解釈" Style="{StaticResource SectionHeader}" />
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Content="通常" GroupName="Mode" Margin="0,0,10,0"
+                                             IsChecked="{Binding Mode, Converter={StaticResource EnumBool}, ConverterParameter=Plain}" />
+                                <RadioButton Content="ワイルドカード" GroupName="Mode" Margin="0,0,10,0"
+                                             IsChecked="{Binding Mode, Converter={StaticResource EnumBool}, ConverterParameter=Wildcard}" />
+                                <RadioButton Content="正規表現" GroupName="Mode"
+                                             IsChecked="{Binding Mode, Converter={StaticResource EnumBool}, ConverterParameter=Regex}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding ModeHint}" TextWrapping="Wrap" Foreground="#FF777777"
+                                       FontSize="11" Margin="0,4,0,0" />
+                            <CheckBox Content="大文字小文字を区別" IsChecked="{Binding CaseSensitive}" Margin="0,6,0,0" />
+                        </StackPanel>
+
+                        <!-- 上の条件を確定させる操作。条件のすぐ下に置く -->
+                        <WrapPanel Grid.Row="6" Margin="0,10,0,0">
+                            <Button Content="適用" Command="{Binding ApplyFilterCommand}"
+                                    Padding="14,4" Margin="0,0,8,4" ToolTip="Ctrl+Enter" />
+                            <Button Content="クリア" Command="{Binding ClearFilterCommand}"
+                                    Padding="14,4" Margin="0,0,10,4"
+                                    ToolTip="含む・除外・検索語を空にして全行表示に戻します" />
+                            <CheckBox Content="自動適用" IsChecked="{Binding AutoApply}" VerticalAlignment="Center"
+                                      Margin="0,0,0,4"
+                                      ToolTip="ON のあいだは、入力を止めた少し後に自動で適用されます（適用ボタンは不要）" />
+                        </WrapPanel>
+
+                        <TextBlock Grid.Row="7" Margin="0,8,0,0"
+                                   Text="{Binding FilterError}"
+                                   Visibility="{Binding FilterError, Converter={StaticResource NullToVisibility}}"
+                                   Foreground="#FFC62828" TextWrapping="Wrap" FontSize="11" />
+                    </Grid>
+                </GroupBox>
+
+                <!-- ===== 変更した瞬間に反映されるもの ===== -->
+                <GroupBox Grid.Row="1" Header="表示" Margin="0,8,0,0" Padding="6,2,6,6">
+                    <StackPanel>
+                        <TextBlock Text="ここは「適用」を押さなくてもすぐ反映されます"
+                                   Foreground="#FF777777" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,6" />
+
+                        <StackPanel Orientation="Horizontal"
+                                    ToolTip="ヒット行の前後を文脈として一緒に表示します。前後行は除外語の影響を受けません。">
+                            <TextBlock Text="ヒット行の前後" VerticalAlignment="Center" />
+                            <TextBox Width="46" Margin="6,0" TextAlignment="Right"
+                                     Text="{Binding ContextLinesText, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="行も表示" VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <WrapPanel Margin="0,8,0,0">
+                            <CheckBox Content="折り返し" IsChecked="{Binding WordWrap}" Margin="0,0,12,4" />
+                            <CheckBox Content="行番号" IsChecked="{Binding ShowLineNumbers}" Margin="0,0,12,4" />
+                            <CheckBox Content="一致箇所を強調" IsChecked="{Binding HighlightMatches}" Margin="0,0,0,4" />
+                        </WrapPanel>
                     </StackPanel>
-                </DockPanel>
+                </GroupBox>
 
-                <TextBox Grid.Row="1" Style="{StaticResource PatternBox}"
-                         Text="{Binding IncludeText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="1 行に 1 パターン。空欄なら全行が対象。# で始まる行はコメント。" />
-
-                <DockPanel Grid.Row="2" Margin="0,10,0,2">
-                    <TextBlock Text="除外 (negative words)" Style="{StaticResource SectionHeader}" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <RadioButton Content="OR" GroupName="ExcLogic" Margin="0,0,6,0" VerticalAlignment="Center"
-                                     IsChecked="{Binding ExcludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=Or}"
-                                     ToolTip="いずれかに一致する行を隠す" />
-                        <RadioButton Content="AND" GroupName="ExcLogic" VerticalAlignment="Center"
-                                     IsChecked="{Binding ExcludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=And}"
-                                     ToolTip="すべてに一致する行だけを隠す" />
-                    </StackPanel>
-                </DockPanel>
-
-                <TextBox Grid.Row="3" Style="{StaticResource PatternBox}"
-                         Text="{Binding ExcludeText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="ここに一致した行は、含む条件を満たしていても表示しません。" />
-
-                <StackPanel Grid.Row="4" Margin="0,10,0,0">
-                    <TextBlock Text="検索方法" Style="{StaticResource SectionHeader}" />
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton Content="通常" GroupName="Mode" Margin="0,0,10,0"
-                                     IsChecked="{Binding Mode, Converter={StaticResource EnumBool}, ConverterParameter=Plain}" />
-                        <RadioButton Content="ワイルドカード" GroupName="Mode" Margin="0,0,10,0"
-                                     IsChecked="{Binding Mode, Converter={StaticResource EnumBool}, ConverterParameter=Wildcard}" />
-                        <RadioButton Content="正規表現" GroupName="Mode"
-                                     IsChecked="{Binding Mode, Converter={StaticResource EnumBool}, ConverterParameter=Regex}" />
-                    </StackPanel>
-                    <TextBlock Text="{Binding ModeHint}" TextWrapping="Wrap" Foreground="#FF777777"
-                               FontSize="11" Margin="0,4,0,0" />
-                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                        <CheckBox Content="大文字小文字を区別" IsChecked="{Binding CaseSensitive}" Margin="0,0,12,0" />
-                        <CheckBox Content="自動適用" IsChecked="{Binding AutoApply}"
-                                  ToolTip="入力を止めた少し後に自動で抽出します" />
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0"
-                                ToolTip="ヒット行の前後を文脈として一緒に表示します。前後行は除外語の影響を受けません。">
-                        <TextBlock Text="ヒット行の前後" VerticalAlignment="Center" />
-                        <TextBox Width="46" Margin="6,0" TextAlignment="Right"
-                                 Text="{Binding ContextLinesText, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Text="行も表示" VerticalAlignment="Center" />
-                    </StackPanel>
-                </StackPanel>
-
-                <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,10,0,0">
-                    <Button Content="適用 (Ctrl+Enter)" Command="{Binding ApplyFilterCommand}"
-                            Padding="10,4" Margin="0,0,8,0" />
-                    <Button Content="クリア" Command="{Binding ClearFilterCommand}" Padding="10,4" />
-                </StackPanel>
-
-                <StackPanel Grid.Row="6" Margin="0,12,0,0">
-                    <TextBlock Text="プリセット" Style="{StaticResource SectionHeader}" />
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="削除" Command="{Binding DeletePresetCommand}"
-                                Padding="8,2" Margin="4,0,0,0" />
-                        <Button DockPanel.Dock="Right" Content="保存" Command="{Binding SavePresetCommand}"
-                                Padding="8,2" Margin="4,0,0,0" />
-                        <ComboBox ItemsSource="{Binding Presets}"
-                                  SelectedItem="{Binding SelectedPreset}"
-                                  DisplayMemberPath="Name" />
-                    </DockPanel>
-                </StackPanel>
-
-                <TextBlock Grid.Row="7" Margin="0,8,0,0"
-                           Text="{Binding FilterError}"
-                           Visibility="{Binding FilterError, Converter={StaticResource NullToVisibility}}"
-                           Foreground="#FFC62828" TextWrapping="Wrap" FontSize="11" />
-
-                <Expander Grid.Row="8" Margin="0,12,0,0" IsExpanded="True"
+                <Expander Grid.Row="2" Margin="0,8,0,0" IsExpanded="True"
                           Header="{Binding MarkerHeader}">
                     <DockPanel Margin="0,4,0,0">
                         <Button DockPanel.Dock="Bottom" Content="マーカーをすべて解除" Margin="0,4,0,0"
