@@ -8,6 +8,7 @@
             <v:WordWrapToScrollBarConverter x:Key="WrapToScroll" />
             <v:InverseBooleanConverter x:Key="InverseBool" />
             <v:NullToVisibilityConverter x:Key="NullToVisibility" />
+            <v:NullToVisibleConverter x:Key="NullToVisible" />
             <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
 
             <Style x:Key="SectionHeader" TargetType="TextBlock">

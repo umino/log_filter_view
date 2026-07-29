@@ -131,6 +131,7 @@ public sealed class MainViewModel : ObservableObject
         ExitCommand = new RelayCommand(() => Application.Current.Shutdown());
 
         LoadFromSettings();
+        SyncSelectedPresetWithConditions();
         UpdateView(LogDocument.Empty);
     }
 
@@ -422,6 +423,8 @@ public sealed class MainViewModel : ObservableObject
     #region プリセット
 
     private FilterPreset? _selectedPreset;
+    private bool _syncingPreset;
+
     public FilterPreset? SelectedPreset
     {
         get => _selectedPreset;
@@ -433,6 +436,44 @@ public sealed class MainViewModel : ObservableObject
             ApplyPreset(value);
         }
     }
+
+    /// <summary>
+    /// 現在の抽出条件と一致するプリセットを選択状態にする（一致するものが無ければ選択なし）。
+    /// </summary>
+    /// <remarks>
+    /// ComboBox は既に選ばれている項目をもう一度選んでも変更として扱わないため、
+    /// 選択状態を実際の条件に追随させておかないと「一度選んだプリセットを選び直す」ことが
+    /// できなくなる（プロジェクト読み込みなどで条件だけが変わった場合に詰む）。
+    /// 条件がプリセットから外れた時点で選択を解除しておけば、選び直しが変更として成立する。
+    /// </remarks>
+    private void SyncSelectedPresetWithConditions()
+    {
+        if (_syncingPreset) return;
+
+        var match = Presets.FirstOrDefault(MatchesCurrentConditions);
+        if (ReferenceEquals(match, _selectedPreset)) return;
+
+        _syncingPreset = true;
+        try
+        {
+            // setter を通すと ApplyPreset が走って条件を上書きしてしまうので、直接入れ替える
+            _selectedPreset = match;
+            OnPropertyChanged(nameof(SelectedPreset));
+            DeletePresetCommand.RaiseCanExecuteChanged();
+        }
+        finally
+        {
+            _syncingPreset = false;
+        }
+    }
+
+    private bool MatchesCurrentConditions(FilterPreset preset) =>
+        string.Equals(preset.Include, IncludeText, StringComparison.Ordinal)
+        && string.Equals(preset.Exclude, ExcludeText, StringComparison.Ordinal)
+        && preset.Mode == Mode
+        && preset.CaseSensitive == CaseSensitive
+        && preset.IncludeLogic == IncludeLogic
+        && preset.ExcludeLogic == ExcludeLogic;
 
     private void ApplyPreset(FilterPreset preset)
     {
@@ -772,6 +813,9 @@ public sealed class MainViewModel : ObservableObject
             _initializing = false;
         }
 
+        // 条件がプリセットから外れたなら選択を解除しておく（同じプリセットを選び直せるように）
+        SyncSelectedPresetWithConditions();
+
         try
         {
             // ここでログの読み込みと抽出まで済む
@@ -931,6 +975,7 @@ public sealed class MainViewModel : ObservableObject
     private void OnFilterConditionChanged()
     {
         if (_initializing) return;
+        SyncSelectedPresetWithConditions();
         _debounceTimer.Stop();
         if (AutoApply) _debounceTimer.Start();
     }
@@ -942,6 +987,7 @@ public sealed class MainViewModel : ObservableObject
         ExcludeText = string.Empty;
         SearchText = string.Empty;
         _initializing = false;
+        SyncSelectedPresetWithConditions();
         _ = ApplyFilterAsync();
     }
 

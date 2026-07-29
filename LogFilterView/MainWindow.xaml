@@ -226,10 +226,16 @@
                             <Button DockPanel.Dock="Right" Content="保存" Command="{Binding SavePresetCommand}"
                                     Padding="8,1" Margin="4,0,0,0"
                                     ToolTip="下の条件をまとめて名前を付けて保存します" />
-                            <ComboBox ItemsSource="{Binding Presets}"
-                                      SelectedItem="{Binding SelectedPreset}"
-                                      DisplayMemberPath="Name"
-                                      ToolTip="選ぶと下の条件がまとめて入れ替わります" />
+                            <Grid>
+                                <ComboBox ItemsSource="{Binding Presets}"
+                                          SelectedItem="{Binding SelectedPreset}"
+                                          DisplayMemberPath="Name"
+                                          ToolTip="選ぶと下の条件がまとめて入れ替わります。現在の条件がどのプリセットとも一致しないときは (カスタム) と表示されます。" />
+                                <!-- 選択なし = 現在の条件がどのプリセットとも一致していない状態 -->
+                                <TextBlock Text="(カスタム)" Margin="8,0,0,0" VerticalAlignment="Center"
+                                           IsHitTestVisible="False" FontStyle="Italic" Foreground="#FF9E9E9E"
+                                           Visibility="{Binding SelectedPreset, Converter={StaticResource NullToVisible}}" />
+                            </Grid>
                         </DockPanel>
 
                         <DockPanel Grid.Row="1" Margin="0,0,0,2">
