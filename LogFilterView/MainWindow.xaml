@@ -241,6 +241,9 @@
                         <DockPanel Grid.Row="1" Margin="0,0,0,2">
                             <TextBlock Text="含む (positive words)" Style="{StaticResource SectionHeader}" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <ToggleButton Content="テキスト" IsChecked="{Binding IncludeAsText}"
+                                              Padding="6,0" Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11"
+                                              ToolTip="まとめて貼り付け・編集したいときは、素のテキストとして扱えます" />
                                 <RadioButton Content="OR" GroupName="IncLogic" Margin="0,0,6,0" VerticalAlignment="Center"
                                              IsChecked="{Binding IncludeLogic, Converter={StaticResource EnumBool}, ConverterParameter=Or}"
                                              ToolTip="いずれかに一致する行を表示" />
@@ -250,9 +253,25 @@
                             </StackPanel>
                         </DockPanel>
 
-                        <TextBox Grid.Row="2" Style="{StaticResource PatternBox}"
-                                 Text="{Binding IncludeText, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="1 行に 1 パターン。空欄なら全行が対象。# で始まる行はコメント。" />
+                        <!-- 行ごとに ON/OFF できるリストと、素のテキスト編集を切り替える（中身はどちらも同じ） -->
+                        <Grid Grid.Row="2">
+                            <Border BorderBrush="#FFABADB3" BorderThickness="1" Background="White"
+                                    Visibility="{Binding IncludeAsText, Converter={StaticResource InverseBoolToVisibility}}">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="IncludeList"
+                                                  ItemsSource="{Binding IncludePatterns}"
+                                                  ItemTemplate="{StaticResource PatternLineTemplate}"
+                                                  Margin="0,2"
+                                                  ToolTip="チェックを外した行は条件から外れます（文言は残ります）。色はログ本文の強調色と同じです。" />
+                                </ScrollViewer>
+                            </Border>
+
+                            <TextBox Style="{StaticResource PatternBox}"
+                                     Visibility="{Binding IncludeAsText, Converter={StaticResource BoolToVisibility}}"
+                                     Text="{Binding IncludeText, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="1 行に 1 パターン。空欄なら全行が対象。# で始まる行は OFF（コメント）扱いです。" />
+                        </Grid>
 
                         <DockPanel Grid.Row="3" Margin="0,10,0,2">
                             <TextBlock Text="除外 (negative words)" Style="{StaticResource SectionHeader}" />

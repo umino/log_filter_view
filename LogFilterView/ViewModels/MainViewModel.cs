@@ -120,6 +120,7 @@ public sealed class MainViewModel : ObservableObject
         IncreaseFontCommand = new RelayCommand(() => FontSize = Math.Min(48, FontSize + 1));
         DecreaseFontCommand = new RelayCommand(() => FontSize = Math.Max(6, FontSize - 1));
         ResetFontCommand = new RelayCommand(() => FontSize = 13);
+        RemovePatternCommand = new RelayCommand(RemovePattern);
         SavePresetCommand = new RelayCommand(SavePreset);
         DeletePresetCommand = new RelayCommand(DeletePreset, () => SelectedPreset is not null);
         OpenProjectCommand = new AsyncRelayCommand(OpenProjectWithDialogAsync);
@@ -131,6 +132,7 @@ public sealed class MainViewModel : ObservableObject
         ExitCommand = new RelayCommand(() => Application.Current.Shutdown());
 
         LoadFromSettings();
+        RebuildIncludePatterns();   // 設定が空文字だと setter が素通りするので、ここで必ず組む
         SyncSelectedPresetWithConditions();
         UpdateView(LogDocument.Empty);
     }
@@ -155,6 +157,7 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand IncreaseFontCommand { get; }
     public RelayCommand DecreaseFontCommand { get; }
     public RelayCommand ResetFontCommand { get; }
+    public RelayCommand RemovePatternCommand { get; }
     public RelayCommand SavePresetCommand { get; }
     public RelayCommand DeletePresetCommand { get; }
     public AsyncRelayCommand OpenProjectCommand { get; }
@@ -188,7 +191,13 @@ public sealed class MainViewModel : ObservableObject
     public string IncludeText
     {
         get => _includeText;
-        set { if (SetProperty(ref _includeText, value)) OnFilterConditionChanged(); }
+        set
+        {
+            if (!SetProperty(ref _includeText, value)) return;
+            // リスト側の編集が発端のときは、書き戻した文字列で組み直すと入力中の行が作り直されてしまう
+            if (!_syncingPatterns) RebuildIncludePatterns();
+            OnFilterConditionChanged();
+        }
     }
 
     private string _excludeText = string.Empty;
@@ -246,6 +255,176 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _filterError;
         private set => SetProperty(ref _filterError, value);
+    }
+
+    #endregion
+
+    #region 含む条件のリスト表示
+
+    /// <summary>
+    /// 「含む」の各行。<see cref="IncludeText"/> を行ごとに分解したもので、両者は常に同じ内容を指す。
+    /// </summary>
+    public ObservableCollection<PatternLine> IncludePatterns { get; } = new();
+
+    private bool _syncingPatterns;
+
+    private bool _includeAsText;
+
+    /// <summary>「含む」をリストではなく素のテキストとして編集するか（まとめて貼り付けたいとき用）。</summary>
+    public bool IncludeAsText
+    {
+        get => _includeAsText;
+        set => SetProperty(ref _includeAsText, value);
+    }
+
+    /// <summary><see cref="IncludeText"/> からリストを組み直す。</summary>
+    private void RebuildIncludePatterns()
+    {
+        foreach (var line in IncludePatterns) line.PropertyChanged -= OnPatternLineChanged;
+        IncludePatterns.Clear();
+
+        foreach (var raw in _includeText.Split('\n'))
+        {
+            var trimmed = raw.Trim('\r', ' ', '\t');
+            if (trimmed.Length == 0) continue;
+
+            bool enabled = trimmed[0] != '#';
+            string text = enabled ? trimmed : trimmed[1..].TrimStart();
+            Add(new PatternLine(text, enabled));
+        }
+
+        EnsureTrailingBlank();
+        AssignPatternColors();
+
+        void Add(PatternLine line)
+        {
+            line.PropertyChanged += OnPatternLineChanged;
+            IncludePatterns.Add(line);
+        }
+    }
+
+    /// <summary>入力するそばから行が足りなくなることのないよう、末尾に空行を 1 つだけ残しておく。</summary>
+    private void EnsureTrailingBlank()
+    {
+        // 消した行がそのまま溜まっていかないよう、末尾の余分な空行は畳む。
+        // 落とすのは常に最後の 1 行なので、いま編集している行からフォーカスが外れることはない。
+        while (IncludePatterns.Count >= 2 && IncludePatterns[^1].IsBlank && IncludePatterns[^2].IsBlank)
+        {
+            IncludePatterns[^1].PropertyChanged -= OnPatternLineChanged;
+            IncludePatterns.RemoveAt(IncludePatterns.Count - 1);
+        }
+
+        if (IncludePatterns.Count > 0 && IncludePatterns[^1].IsBlank) return;
+
+        var blank = new PatternLine(string.Empty, true);
+        blank.PropertyChanged += OnPatternLineChanged;
+        IncludePatterns.Add(blank);
+    }
+
+    private void OnPatternLineChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PatternLine.Color)) return;
+
+        if (sender is PatternLine line && e.PropertyName == nameof(PatternLine.Text) && line.Text.Contains('\n'))
+        {
+            SplitPastedLines(line);
+            return;
+        }
+
+        EnsureTrailingBlank();
+        WriteBackIncludePatterns();
+
+        // ON/OFF は本文の色が変わる操作なので、抽出の完了を待たずに反映する
+        if (e.PropertyName == nameof(PatternLine.IsEnabled)) UpdateHighlight();
+    }
+
+    /// <summary>1 行の入力欄に複数行が貼り付けられたときは、行ごとに分ける。</summary>
+    private void SplitPastedLines(PatternLine line)
+    {
+        int at = IncludePatterns.IndexOf(line);
+        if (at < 0) return;
+
+        var parts = line.Text.Split('\n')
+                        .Select(p => p.Trim('\r', ' ', '\t'))
+                        .Where(p => p.Length > 0)
+                        .ToArray();
+
+        _syncingPatterns = true;
+        try
+        {
+            line.Text = parts.Length > 0 ? parts[0] : string.Empty;
+        }
+        finally
+        {
+            _syncingPatterns = false;
+        }
+
+        for (int i = 1; i < parts.Length; i++)
+        {
+            bool enabled = parts[i][0] != '#';
+            var added = new PatternLine(enabled ? parts[i] : parts[i][1..].TrimStart(), enabled);
+            added.PropertyChanged += OnPatternLineChanged;
+            IncludePatterns.Insert(at + i, added);
+        }
+
+        EnsureTrailingBlank();
+        WriteBackIncludePatterns();
+    }
+
+    /// <summary>リストの内容を <see cref="IncludeText"/> へ書き戻す。</summary>
+    private void WriteBackIncludePatterns()
+    {
+        if (_syncingPatterns) return;
+
+        var composed = string.Join("\r\n", IncludePatterns
+            .Where(p => !p.IsBlank)
+            .Select(p => p.IsEnabled ? p.Text : "#" + p.Text));
+
+        _syncingPatterns = true;
+        try
+        {
+            IncludeText = composed;
+        }
+        finally
+        {
+            _syncingPatterns = false;
+        }
+
+        AssignPatternColors();
+    }
+
+    /// <summary>
+    /// 各行に強調色を割り当てる。
+    /// </summary>
+    /// <remarks>
+    /// 色は「空でない行の並び順」で決める。OFF の行も順番だけは数に入れるので、
+    /// チェックを外しても他の行の色がずれない。
+    /// </remarks>
+    private void AssignPatternColors()
+    {
+        var palette = HighlightRuleSet.Palette;
+        int ordinal = 0;
+        foreach (var line in IncludePatterns)
+        {
+            if (line.IsBlank)
+            {
+                line.Color = null;
+                continue;
+            }
+            line.Color = line.IsEnabled ? palette[ordinal % palette.Count] : null;
+            ordinal++;
+        }
+    }
+
+    private void RemovePattern(object? parameter)
+    {
+        if (parameter is not PatternLine line) return;
+        if (!IncludePatterns.Remove(line)) return;
+
+        line.PropertyChanged -= OnPatternLineChanged;
+        EnsureTrailingBlank();
+        WriteBackIncludePatterns();
+        UpdateHighlight();
     }
 
     #endregion
@@ -1319,18 +1498,19 @@ public sealed class MainViewModel : ObservableObject
             }
         }
 
-        try
+        // リストに表示している色をそのまま使う。こうしておけば、チェック欄の色と
+        // 本文の色が食い違うことがない。
+        foreach (var line in IncludePatterns)
         {
-            var matchers = CompiledFilter.CompilePatterns(IncludeText, Mode, CaseSensitive);
-            var palette = HighlightRuleSet.Palette;
-            for (int i = 0; i < matchers.Length; i++)
+            if (!line.IsEnabled || line.IsBlank || line.Color is null) continue;
+            try
             {
-                rules.Add(new HighlightRule(matchers[i], palette[i % palette.Count]));
+                rules.Add(new HighlightRule(PatternMatcher.Create(line.Text, Mode, CaseSensitive), line.Color));
             }
-        }
-        catch (FilterPatternException)
-        {
-            // 同上
+            catch (FilterPatternException)
+            {
+                // 1 行が不正でも、他の行の強調は続ける
+            }
         }
 
         View.Highlight = rules.Count == 0 ? HighlightRuleSet.Empty : new HighlightRuleSet(rules);
@@ -1499,6 +1679,7 @@ public sealed class MainViewModel : ObservableObject
             IncludeLogic = _settings.IncludeLogic;
             ExcludeLogic = _settings.ExcludeLogic;
             AutoApply = _settings.AutoApply;
+            IncludeAsText = _settings.IncludeAsText;
             ContextLines = Math.Clamp(_settings.ContextLines, 0, MaxContextLines);
             WordWrap = _settings.WordWrap;
             ShowLineNumbers = _settings.ShowLineNumbers;
@@ -1524,6 +1705,7 @@ public sealed class MainViewModel : ObservableObject
         _settings.IncludeLogic = IncludeLogic;
         _settings.ExcludeLogic = ExcludeLogic;
         _settings.AutoApply = AutoApply;
+        _settings.IncludeAsText = IncludeAsText;
         _settings.ContextLines = ContextLines;
         _settings.WordWrap = WordWrap;
         _settings.ShowLineNumbers = ShowLineNumbers;

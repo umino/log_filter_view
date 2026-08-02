@@ -37,6 +37,9 @@ public sealed class AppSettings
     public bool AutoApply { get; set; } = true;
     public int ContextLines { get; set; }
 
+    /// <summary>「含む」を行ごとのリストではなく素のテキストとして編集するか。</summary>
+    public bool IncludeAsText { get; set; }
+
     public bool WordWrap { get; set; }
     public bool ShowLineNumbers { get; set; } = true;
     public bool HighlightMatches { get; set; } = true;
