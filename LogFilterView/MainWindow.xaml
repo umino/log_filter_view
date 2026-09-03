@@ -31,6 +31,20 @@
         <KeyBinding Key="F" Modifiers="Control" Command="{x:Static local:MainWindow.FocusSearchCommand}" />
         <KeyBinding Key="G" Modifiers="Control" Command="{x:Static local:MainWindow.FocusGoToCommand}" />
         <KeyBinding Key="M" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerCommand}" />
+
+        <!-- Ctrl+1〜6 で、その色のマーカーを直接 ON/OFF する -->
+        <KeyBinding Key="D1" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="0" />
+        <KeyBinding Key="D2" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="1" />
+        <KeyBinding Key="D3" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="2" />
+        <KeyBinding Key="D4" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="3" />
+        <KeyBinding Key="D5" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="4" />
+        <KeyBinding Key="D6" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="5" />
+        <KeyBinding Key="NumPad1" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="0" />
+        <KeyBinding Key="NumPad2" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="1" />
+        <KeyBinding Key="NumPad3" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="2" />
+        <KeyBinding Key="NumPad4" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="3" />
+        <KeyBinding Key="NumPad5" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="4" />
+        <KeyBinding Key="NumPad6" Modifiers="Control" Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="5" />
     </Window.InputBindings>
 
     <Window.CommandBindings>
@@ -39,8 +53,8 @@
                         Executed="CopyWithLineNumbersExecuted" CanExecute="CopyCanExecute" />
         <CommandBinding Command="{x:Static local:MainWindow.ToggleMarkerCommand}"
                         Executed="ToggleMarkerExecuted" CanExecute="SelectionRequired" />
-        <CommandBinding Command="{x:Static local:MainWindow.SetMarkerColorCommand}"
-                        Executed="SetMarkerColorExecuted" CanExecute="SelectionRequired" />
+        <CommandBinding Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}"
+                        Executed="ToggleMarkerColorExecuted" CanExecute="SelectionRequired" />
         <CommandBinding Command="{x:Static local:MainWindow.ExpandAroundCommand}"
                         Executed="ExpandAroundExecuted" CanExecute="SelectionRequired" />
         <CommandBinding Command="{x:Static local:MainWindow.FocusSearchCommand}" Executed="FocusSearchExecuted" />
@@ -96,14 +110,20 @@
                 <Separator />
                 <MenuItem Header="マーカーの ON/OFF(_M)" InputGestureText="Ctrl+M"
                           Command="{x:Static local:MainWindow.ToggleMarkerCommand}" />
-                <MenuItem Header="マーカーの色(_C)"
-                          ToolTip="選択している行にその色でマーカーを付けます">
-                    <MenuItem Header="橙" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="0" />
-                    <MenuItem Header="赤" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="1" />
-                    <MenuItem Header="黄" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="2" />
-                    <MenuItem Header="緑" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="3" />
-                    <MenuItem Header="青" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="4" />
-                    <MenuItem Header="紫" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="5" />
+                <MenuItem Header="色を指定してマーカー(_C)"
+                          ToolTip="選択している行にその色でマーカーを付けます。同じ色をもう一度選ぶと外れます。">
+                    <MenuItem Header="橙" InputGestureText="Ctrl+1"
+                              Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="0" />
+                    <MenuItem Header="赤" InputGestureText="Ctrl+2"
+                              Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="1" />
+                    <MenuItem Header="黄" InputGestureText="Ctrl+3"
+                              Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="2" />
+                    <MenuItem Header="緑" InputGestureText="Ctrl+4"
+                              Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="3" />
+                    <MenuItem Header="青" InputGestureText="Ctrl+5"
+                              Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="4" />
+                    <MenuItem Header="紫" InputGestureText="Ctrl+6"
+                              Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="5" />
                 </MenuItem>
                 <MenuItem Header="マーカーをすべて解除" Command="{Binding ClearMarkersCommand}" />
                 <MenuItem Header="前後の展開をすべて解除" Command="{Binding ClearExpansionsCommand}" />
@@ -473,19 +493,19 @@
                             <Separator />
                             <MenuItem Header="マーカーの ON/OFF" InputGestureText="Ctrl+M"
                                       Command="{x:Static local:MainWindow.ToggleMarkerCommand}" />
-                            <MenuItem Header="マーカーの色">
-                                <MenuItem Header="橙"
-                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="0" />
-                                <MenuItem Header="赤"
-                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="1" />
-                                <MenuItem Header="黄"
-                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="2" />
-                                <MenuItem Header="緑"
-                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="3" />
-                                <MenuItem Header="青"
-                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="4" />
-                                <MenuItem Header="紫"
-                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="5" />
+                            <MenuItem Header="色を指定してマーカー">
+                                <MenuItem Header="橙" InputGestureText="Ctrl+1"
+                                          Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="0" />
+                                <MenuItem Header="赤" InputGestureText="Ctrl+2"
+                                          Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="1" />
+                                <MenuItem Header="黄" InputGestureText="Ctrl+3"
+                                          Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="2" />
+                                <MenuItem Header="緑" InputGestureText="Ctrl+4"
+                                          Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="3" />
+                                <MenuItem Header="青" InputGestureText="Ctrl+5"
+                                          Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="4" />
+                                <MenuItem Header="紫" InputGestureText="Ctrl+6"
+                                          Command="{x:Static local:MainWindow.ToggleMarkerColorCommand}" CommandParameter="5" />
                             </MenuItem>
                             <Separator />
                             <MenuItem Header="この行の前後を展開">

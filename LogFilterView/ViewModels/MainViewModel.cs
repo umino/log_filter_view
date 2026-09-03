@@ -1479,6 +1479,40 @@ public sealed class MainViewModel : ObservableObject
         if (changed) RebuildMarkerList();
     }
 
+    /// <summary>
+    /// 選択されている行の「その色のマーカー」を反転させる（<c>Ctrl+1</c>〜<c>Ctrl+6</c>）。
+    /// </summary>
+    /// <remarks>
+    /// 色が違う行に押したときは外さずにその色へ揃える。色を選び直すたびに
+    /// 2 回押す必要があると、キーボードだけで色を塗り替えられないため。
+    /// 複数行を選んでいる場合は、全部が既にその色のときだけまとめて外す。
+    /// </remarks>
+    public void ToggleMarkerColor(IEnumerable<int> lineNumbers, int colorIndex)
+    {
+        if (!HasDocument) return;
+
+        colorIndex = MarkerPalette.Normalize(colorIndex);
+        var targets = ValidLineIndexes(lineNumbers).ToList();
+        if (targets.Count == 0) return;
+
+        bool remove = targets.All(i => _markedLines.TryGetValue(i, out int current) && current == colorIndex);
+        foreach (int lineIndex in targets)
+        {
+            if (remove) _markedLines.Remove(lineIndex);
+            else _markedLines[lineIndex] = colorIndex;
+        }
+
+        // 次の Ctrl+M も同じ色で付くほうが、色を選び直す手間がない
+        _lastMarkerColorIndex = colorIndex;
+        RebuildMarkerList();
+
+        // 手が止まらないよう、どの色になったのかは画面を見なくても分かるようにする
+        string name = MarkerPalette.Get(colorIndex).Name;
+        StatusText = remove
+            ? $"{targets.Count:N0} 行の{name}のマーカーを外しました"
+            : $"{targets.Count:N0} 行に{name}のマーカーを付けました";
+    }
+
     /// <summary>マーカー一覧で選んでいる 1 件の色を変える。</summary>
     public void ChangeSelectedMarkerColor(int colorIndex)
     {

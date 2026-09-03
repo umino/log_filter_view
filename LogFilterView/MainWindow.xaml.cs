@@ -30,8 +30,9 @@ public partial class MainWindow : Window
     public static readonly RoutedUICommand ToggleMarkerCommand =
         new("マーカーの ON/OFF", nameof(ToggleMarkerCommand), typeof(MainWindow));
 
-    public static readonly RoutedUICommand SetMarkerColorCommand =
-        new("マーカーの色", nameof(SetMarkerColorCommand), typeof(MainWindow));
+    /// <summary>色を指定してマーカーを反転させる。CommandParameter は色番号（0 起点）。</summary>
+    public static readonly RoutedUICommand ToggleMarkerColorCommand =
+        new("色を指定してマーカーの ON/OFF", nameof(ToggleMarkerColorCommand), typeof(MainWindow));
 
     public static readonly RoutedUICommand ExpandAroundCommand =
         new("この行の前後を展開", nameof(ExpandAroundCommand), typeof(MainWindow));
@@ -223,10 +224,10 @@ public partial class MainWindow : Window
     private void ToggleMarkerExecuted(object sender, ExecutedRoutedEventArgs e) =>
         _viewModel.ToggleMarkers(SelectedLineNumbers());
 
-    private void SetMarkerColorExecuted(object sender, ExecutedRoutedEventArgs e)
+    private void ToggleMarkerColorExecuted(object sender, ExecutedRoutedEventArgs e)
     {
         if (!MainViewModel.TryParseColorIndex(e.Parameter, out int colorIndex)) return;
-        _viewModel.SetMarkerColor(SelectedLineNumbers(), colorIndex);
+        _viewModel.ToggleMarkerColor(SelectedLineNumbers(), colorIndex);
     }
 
     private void ExpandAroundExecuted(object sender, ExecutedRoutedEventArgs e)
