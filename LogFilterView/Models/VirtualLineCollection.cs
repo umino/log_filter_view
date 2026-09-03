@@ -1,20 +1,22 @@
 using System.Collections;
 using System.ComponentModel;
+using System.Windows.Media;
+using LogFilterView.Views;
 
 namespace LogFilterView.Models;
 
 /// <summary>表示 1 行分。画面に見えている行の分だけ生成される。</summary>
 public sealed class LineRow : INotifyPropertyChanged
 {
-    private bool _isMarked;
+    private int _markerColorIndex;
 
-    public LineRow(int viewIndex, int lineNumber, string text, bool isContext, bool isMarked)
+    public LineRow(int viewIndex, int lineNumber, string text, bool isContext, int markerColorIndex)
     {
         ViewIndex = viewIndex;
         LineNumber = lineNumber;
         Text = text;
         IsContext = isContext;
-        _isMarked = isMarked;
+        _markerColorIndex = markerColorIndex;
         LineNumberText = lineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -30,21 +32,43 @@ public sealed class LineRow : INotifyPropertyChanged
     /// <summary>条件に一致したのではなく、前後の文脈として表示されている行。</summary>
     public bool IsContext { get; }
 
-    /// <summary>マーカーの有無。実体化済みの行に対して後から更新される。</summary>
-    public bool IsMarked
+    /// <summary>
+    /// マーカーの色番号。マーカーが無ければ -1。実体化済みの行に対して後から更新される。
+    /// </summary>
+    public int MarkerColorIndex
     {
-        get => _isMarked;
+        get => _markerColorIndex;
         internal set
         {
-            if (_isMarked == value) return;
-            _isMarked = value;
+            if (_markerColorIndex == value) return;
+            _markerColorIndex = value;
+            // 色そのものではなく色番号を持たせておき、表示用のブラシは都度引く。
+            // 行は画面に見えている数十行しか作られないので、この引き直しは無視できる。
             PropertyChanged?.Invoke(this, MarkedChangedArgs);
+            PropertyChanged?.Invoke(this, AccentChangedArgs);
+            PropertyChanged?.Invoke(this, RowChangedArgs);
+            PropertyChanged?.Invoke(this, NumberChangedArgs);
         }
     }
+
+    /// <summary>マーカーの有無。</summary>
+    public bool IsMarked => _markerColorIndex >= 0;
+
+    /// <summary>左端の帯の色。マーカーが無ければ null。</summary>
+    public Brush? MarkerAccentBrush => _markerColorIndex < 0 ? null : MarkerPalette.Get(_markerColorIndex).Accent;
+
+    /// <summary>行全体の背景色。マーカーが無ければ null。</summary>
+    public Brush? MarkerRowBrush => _markerColorIndex < 0 ? null : MarkerPalette.Get(_markerColorIndex).Row;
+
+    /// <summary>行番号の文字色。マーカーが無ければ null。</summary>
+    public Brush? MarkerNumberBrush => _markerColorIndex < 0 ? null : MarkerPalette.Get(_markerColorIndex).Number;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private static readonly PropertyChangedEventArgs MarkedChangedArgs = new(nameof(IsMarked));
+    private static readonly PropertyChangedEventArgs AccentChangedArgs = new(nameof(MarkerAccentBrush));
+    private static readonly PropertyChangedEventArgs RowChangedArgs = new(nameof(MarkerRowBrush));
+    private static readonly PropertyChangedEventArgs NumberChangedArgs = new(nameof(MarkerNumberBrush));
 
     public override string ToString() => Text;
 }
@@ -63,16 +87,17 @@ public sealed class VirtualLineCollection : IList, IReadOnlyList<LineRow>
     private readonly LogDocument _document;
     private readonly int[]? _map;
     private readonly bool[]? _isContext;
-    private readonly IReadOnlySet<int>? _markedLines;
+    /// <summary>行インデックス（0 基点）→ マーカーの色番号。</summary>
+    private readonly IReadOnlyDictionary<int, int>? _markers;
     private readonly Dictionary<int, LineRow> _cache = new(256);
 
     public VirtualLineCollection(LogDocument document, int[]? map,
-                                 bool[]? isContext = null, IReadOnlySet<int>? markedLines = null)
+                                 bool[]? isContext = null, IReadOnlyDictionary<int, int>? markers = null)
     {
         _document = document;
         _map = map;
         _isContext = isContext;
-        _markedLines = markedLines;
+        _markers = markers;
         Count = map?.Length ?? document.LineCount;
         MaxLineLength = ComputeMaxLineLength(document, map);
     }
@@ -97,25 +122,27 @@ public sealed class VirtualLineCollection : IList, IReadOnlyList<LineRow>
             int lineIndex = _map is null ? index : _map[index];
             var row = new LineRow(index, lineIndex + 1, _document.GetText(lineIndex),
                                   _isContext is not null && _isContext[index],
-                                  _markedLines is not null && _markedLines.Contains(lineIndex));
+                                  MarkerColorAt(lineIndex));
             _cache[index] = row;
             return row;
         }
     }
 
     /// <summary>
-    /// マーカーの付け外しを、既に実体化されている行へ反映する。
+    /// マーカーの付け外し・色の変更を、既に実体化されている行へ反映する。
     /// 実体化済みは画面に見えている前後 4096 行までなので、走査は一瞬で終わる。
     /// </summary>
     public void RefreshMarkers()
     {
-        if (_markedLines is null) return;
+        if (_markers is null) return;
         foreach (var (index, row) in _cache)
         {
-            int lineIndex = _map is null ? index : _map[index];
-            row.IsMarked = _markedLines.Contains(lineIndex);
+            row.MarkerColorIndex = MarkerColorAt(_map is null ? index : _map[index]);
         }
     }
+
+    private int MarkerColorAt(int lineIndex) =>
+        _markers is not null && _markers.TryGetValue(lineIndex, out int color) ? color : -1;
 
     /// <summary>表示位置 → 元ファイルの行番号（1 基点）。</summary>
     public int ToLineNumber(int viewIndex) => (_map is null ? viewIndex : _map[viewIndex]) + 1;

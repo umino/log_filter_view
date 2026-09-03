@@ -151,12 +151,11 @@
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
-                <Style.Triggers>
-                    <!-- 横スクロールで左端の帯が見えなくなっても分かるように、行全体を淡く塗る -->
-                    <DataTrigger Binding="{Binding IsMarked}" Value="True">
-                        <Setter Property="Background" Value="#FFFFF1DC" />
-                    </DataTrigger>
-                </Style.Triggers>
+                <!--
+                    横スクロールで左端の帯が見えなくなっても分かるように、行全体をその色で淡く塗る。
+                    マーカーが無い行は null なので Transparent（＝既定の背景）になる。
+                -->
+                <Setter Property="Background" Value="{Binding MarkerRowBrush, TargetNullValue=Transparent}" />
             </Style>
 
             <DataTemplate x:Key="LineTemplate">
@@ -168,19 +167,9 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <!-- マーカーの目印 -->
-                    <Border Grid.Column="0" Width="4" HorizontalAlignment="Left" CornerRadius="2">
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="Background" Value="Transparent" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsMarked}" Value="True">
-                                        <Setter Property="Background" Value="#FFF57C00" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                    </Border>
+                    <!-- マーカーの目印。色は行ごとに選べる -->
+                    <Border Grid.Column="0" Width="4" HorizontalAlignment="Left" CornerRadius="2"
+                            Background="{Binding MarkerAccentBrush, TargetNullValue=Transparent}" />
 
                     <TextBlock Grid.Column="1"
                                Text="{Binding LineNumberText}"
@@ -191,10 +180,10 @@
                                Margin="0,0,8,0">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="#FF8A8A8A" />
+                                <Setter Property="Foreground"
+                                        Value="{Binding MarkerNumberBrush, TargetNullValue=#FF8A8A8A}" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsMarked}" Value="True">
-                                        <Setter Property="Foreground" Value="#FFE65100" />
                                         <Setter Property="FontWeight" Value="Bold" />
                                     </DataTrigger>
                                 </Style.Triggers>

@@ -36,16 +36,24 @@ public sealed class RecentFileItem
 /// <summary>マーカー一覧の 1 項目。行番号と、行頭（先頭の空白を除く）の抜粋を持つ。</summary>
 public sealed class MarkerItem
 {
-    public MarkerItem(int lineNumber, string preview)
+    public MarkerItem(int lineNumber, string preview, int colorIndex)
     {
         LineNumber = lineNumber;
         Preview = preview;
+        ColorIndex = colorIndex;
+        Color = MarkerPalette.Get(colorIndex);
     }
 
     /// <summary>元ファイル上の行番号（1 基点）。</summary>
     public int LineNumber { get; }
 
     public string Preview { get; }
+
+    /// <summary>パレット上の色番号。</summary>
+    public int ColorIndex { get; }
+
+    /// <summary>一覧に出す色見本。ログ本文側の帯と同じ色を指す。</summary>
+    public MarkerColor Color { get; }
 
     public string Display => $"{LineNumber:N0}: {Preview}";
 
@@ -129,6 +137,9 @@ public sealed class MainViewModel : ObservableObject
         ClearExpansionsCommand = new RelayCommand(ClearExpansions, () => _expansions.Count > 0);
         ClearMarkersCommand = new RelayCommand(ClearMarkers, () => _markedLines.Count > 0);
         RemoveMarkerCommand = new RelayCommand(RemoveSelectedMarker, () => SelectedMarker is not null);
+        ChangeMarkerColorCommand = new RelayCommand(
+            p => { if (TryParseColorIndex(p, out int index)) ChangeSelectedMarkerColor(index); },
+            _ => SelectedMarker is not null);
         ExitCommand = new RelayCommand(() => Application.Current.Shutdown());
 
         LoadFromSettings();
@@ -166,6 +177,7 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand ClearExpansionsCommand { get; }
     public RelayCommand ClearMarkersCommand { get; }
     public RelayCommand RemoveMarkerCommand { get; }
+    public RelayCommand ChangeMarkerColorCommand { get; }
     public RelayCommand ExitCommand { get; }
 
     #endregion
@@ -233,6 +245,22 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _excludeLogic;
         set { if (SetProperty(ref _excludeLogic, value)) OnFilterConditionChanged(); }
+    }
+
+    private bool _includeHighlightOnly;
+
+    /// <summary>
+    /// 「含む」を行の絞り込みには使わず、強調表示だけに使うか。
+    /// </summary>
+    /// <remarks>
+    /// ON のあいだは全行が表示され、含む語は色が付くだけになる。
+    /// 「除外」はそのまま効くので、ノイズだけ落とした全文を眺めながら
+    /// 注目したい語を色で追う、という読み方ができる。
+    /// </remarks>
+    public bool IncludeHighlightOnly
+    {
+        get => _includeHighlightOnly;
+        set { if (SetProperty(ref _includeHighlightOnly, value)) OnFilterConditionChanged(); }
     }
 
     private bool _autoApply = true;
@@ -652,7 +680,8 @@ public sealed class MainViewModel : ObservableObject
         && preset.Mode == Mode
         && preset.CaseSensitive == CaseSensitive
         && preset.IncludeLogic == IncludeLogic
-        && preset.ExcludeLogic == ExcludeLogic;
+        && preset.ExcludeLogic == ExcludeLogic
+        && preset.IncludeHighlightOnly == IncludeHighlightOnly;
 
     private void ApplyPreset(FilterPreset preset)
     {
@@ -666,6 +695,7 @@ public sealed class MainViewModel : ObservableObject
             CaseSensitive = preset.CaseSensitive;
             IncludeLogic = preset.IncludeLogic;
             ExcludeLogic = preset.ExcludeLogic;
+            IncludeHighlightOnly = preset.IncludeHighlightOnly;
         }
         finally
         {
@@ -692,6 +722,7 @@ public sealed class MainViewModel : ObservableObject
         preset.CaseSensitive = CaseSensitive;
         preset.IncludeLogic = IncludeLogic;
         preset.ExcludeLogic = ExcludeLogic;
+        preset.IncludeHighlightOnly = IncludeHighlightOnly;
 
         if (isNew) Presets.Add(preset);
 
@@ -978,6 +1009,7 @@ public sealed class MainViewModel : ObservableObject
             CaseSensitive = project.CaseSensitive;
             IncludeLogic = project.IncludeLogic;
             ExcludeLogic = project.ExcludeLogic;
+            IncludeHighlightOnly = project.IncludeHighlightOnly;
             ContextLines = Math.Clamp(project.ContextLines, 0, MaxContextLines);
             SelectedEncoding = TextEncodings.FromKey(project.EncodingKey);
             WordWrap = project.WordWrap;
@@ -1001,12 +1033,17 @@ public sealed class MainViewModel : ObservableObject
             await OpenAsync(logPath);
             if (!HasDocument) return;
 
-            // マーカーは本文が読めるようになってから復元する
+            // マーカーは本文が読めるようになってから復元する。
+            // 色は Markers と同じ並びの MarkerColors から引く。
+            // 色が無い（旧形式）・数が合わない場合は既定色に倒す。
             _markedLines.Clear();
-            foreach (int lineNumber in project.Markers)
+            var colors = project.MarkerColors;
+            for (int i = 0; i < project.Markers.Count; i++)
             {
-                int lineIndex = lineNumber - 1;
-                if (lineIndex >= 0 && lineIndex < _document.LineCount) _markedLines.Add(lineIndex);
+                int lineIndex = project.Markers[i] - 1;
+                if (lineIndex < 0 || lineIndex >= _document.LineCount) continue;
+                int colorIndex = i < colors.Count ? MarkerPalette.Normalize(colors[i]) : MarkerPalette.DefaultIndex;
+                _markedLines[lineIndex] = colorIndex;
             }
             RebuildMarkerList();
 
@@ -1085,26 +1122,34 @@ public sealed class MainViewModel : ObservableObject
         StatusText = $"プロジェクトを保存しました: {path}";
     }
 
-    private ProjectFile BuildProject() => new()
+    private ProjectFile BuildProject()
     {
-        LogFilePath = _document.FilePath,
-        EncodingKey = SelectedEncoding.Key,
-        IncludeText = IncludeText,
-        ExcludeText = ExcludeText,
-        Mode = Mode,
-        CaseSensitive = CaseSensitive,
-        IncludeLogic = IncludeLogic,
-        ExcludeLogic = ExcludeLogic,
-        ContextLines = ContextLines,
-        Markers = _markedLines.Order().Select(i => i + 1).ToList(),
-        WordWrap = WordWrap,
-        ShowLineNumbers = ShowLineNumbers,
-        HighlightMatches = HighlightMatches,
-        FontSize = FontSize,
-        FontFamily = FontFamilyName,
-        SearchText = SearchText,
-        CursorLineNumber = Math.Max(0, CurrentLineNumber()),
-    };
+        // Markers と MarkerColors は同じ並びで書き出す（読み込み側も並びで対応付ける）
+        var ordered = _markedLines.Keys.Order().ToList();
+
+        return new ProjectFile
+        {
+            LogFilePath = _document.FilePath,
+            EncodingKey = SelectedEncoding.Key,
+            IncludeText = IncludeText,
+            ExcludeText = ExcludeText,
+            Mode = Mode,
+            CaseSensitive = CaseSensitive,
+            IncludeLogic = IncludeLogic,
+            ExcludeLogic = ExcludeLogic,
+            IncludeHighlightOnly = IncludeHighlightOnly,
+            ContextLines = ContextLines,
+            Markers = ordered.Select(i => i + 1).ToList(),
+            MarkerColors = ordered.Select(i => _markedLines[i]).ToList(),
+            WordWrap = WordWrap,
+            ShowLineNumbers = ShowLineNumbers,
+            HighlightMatches = HighlightMatches,
+            FontSize = FontSize,
+            FontFamily = FontFamilyName,
+            SearchText = SearchText,
+            CursorLineNumber = Math.Max(0, CurrentLineNumber()),
+        };
+    }
 
     #endregion
 
@@ -1184,8 +1229,13 @@ public sealed class MainViewModel : ObservableObject
         CompiledFilter filter;
         try
         {
+            // 「強調のみ」では含む語を絞り込みに渡さない。除外語はそのまま効かせる。
+            // 絞り込みに使わない場合でも、書き間違いは黙って捨てずに知らせる。
+            if (IncludeHighlightOnly) CompiledFilter.CompilePatterns(IncludeText, Mode, CaseSensitive);
+
             filter = CompiledFilter.Compile(new FilterRequest(
-                IncludeText, ExcludeText, Mode, CaseSensitive, IncludeLogic, ExcludeLogic));
+                IncludeHighlightOnly ? string.Empty : IncludeText,
+                ExcludeText, Mode, CaseSensitive, IncludeLogic, ExcludeLogic));
             FilterError = null;
         }
         catch (FilterPatternException ex)
@@ -1366,9 +1416,16 @@ public sealed class MainViewModel : ObservableObject
 
     #region マーカー
 
-    private readonly HashSet<int> _markedLines = new();
+    /// <summary>行インデックス（0 基点）→ マーカーの色番号。</summary>
+    private readonly Dictionary<int, int> _markedLines = new();
+
+    /// <summary>直近に選ばれた色。色を指定しない <c>Ctrl+M</c> はこの色で付ける。</summary>
+    private int _lastMarkerColorIndex = MarkerPalette.DefaultIndex;
 
     public ObservableCollection<MarkerItem> Markers { get; } = new();
+
+    /// <summary>メニューに並べるマーカー色の一覧。</summary>
+    public IReadOnlyList<MarkerColor> MarkerColors => MarkerPalette.Colors;
 
     public string MarkerHeader => $"マーカー ({Markers.Count})";
 
@@ -1380,25 +1437,95 @@ public sealed class MainViewModel : ObservableObject
         {
             if (!SetProperty(ref _selectedMarker, value)) return;
             RemoveMarkerCommand.RaiseCanExecuteChanged();
+            ChangeMarkerColorCommand.RaiseCanExecuteChanged();
             if (value is not null) JumpToMarker(value);
         }
     }
 
-    /// <summary>選択されている行のマーカーを 1 行ずつ反転させる。</summary>
+    /// <summary>選択されている行のマーカーを 1 行ずつ反転させる。色は直近に使ったもの。</summary>
     public void ToggleMarkers(IEnumerable<int> lineNumbers)
     {
         if (!HasDocument) return;
 
         bool changed = false;
-        foreach (int lineNumber in lineNumbers)
+        foreach (int lineIndex in ValidLineIndexes(lineNumbers))
         {
-            int lineIndex = lineNumber - 1;
-            if (lineIndex < 0 || lineIndex >= _document.LineCount) continue;
-            if (!_markedLines.Remove(lineIndex)) _markedLines.Add(lineIndex);
+            if (!_markedLines.Remove(lineIndex)) _markedLines[lineIndex] = _lastMarkerColorIndex;
             changed = true;
         }
 
         if (changed) RebuildMarkerList();
+    }
+
+    /// <summary>
+    /// 選択されている行に、指定した色のマーカーを付ける。
+    /// 既に付いている行は色だけを変える（ここでは外さない。外すのは <see cref="ToggleMarkers"/>）。
+    /// </summary>
+    public void SetMarkerColor(IEnumerable<int> lineNumbers, int colorIndex)
+    {
+        if (!HasDocument) return;
+
+        colorIndex = MarkerPalette.Normalize(colorIndex);
+        bool changed = false;
+        foreach (int lineIndex in ValidLineIndexes(lineNumbers))
+        {
+            if (_markedLines.TryGetValue(lineIndex, out int current) && current == colorIndex) continue;
+            _markedLines[lineIndex] = colorIndex;
+            changed = true;
+        }
+
+        // 次の Ctrl+M も同じ色で付くほうが、色を選び直す手間がない
+        _lastMarkerColorIndex = colorIndex;
+        if (changed) RebuildMarkerList();
+    }
+
+    /// <summary>マーカー一覧で選んでいる 1 件の色を変える。</summary>
+    public void ChangeSelectedMarkerColor(int colorIndex)
+    {
+        if (SelectedMarker is null) return;
+
+        int lineNumber = SelectedMarker.LineNumber;
+        SetMarkerColor(new[] { lineNumber }, colorIndex);
+        RestoreMarkerSelection(lineNumber);
+    }
+
+    /// <summary>
+    /// 一覧を組み直したあとで、同じ行の項目を選び直す。
+    /// 色を選ぶたびに選択が外れると次の色を試せないので、ここだけは復元する。
+    /// setter を通すとジャンプが再発火するため、フィールドへ直接入れる。
+    /// </summary>
+    private void RestoreMarkerSelection(int lineNumber)
+    {
+        _selectedMarker = Markers.FirstOrDefault(m => m.LineNumber == lineNumber);
+        OnPropertyChanged(nameof(SelectedMarker));
+        RemoveMarkerCommand.RaiseCanExecuteChanged();
+        ChangeMarkerColorCommand.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>メニューの CommandParameter（XAML では文字列）を色番号として読む。</summary>
+    public static bool TryParseColorIndex(object? parameter, out int colorIndex)
+    {
+        switch (parameter)
+        {
+            case int number:
+                colorIndex = number;
+                return true;
+            case string text when int.TryParse(text, out int parsed):
+                colorIndex = parsed;
+                return true;
+            default:
+                colorIndex = MarkerPalette.DefaultIndex;
+                return false;
+        }
+    }
+
+    private IEnumerable<int> ValidLineIndexes(IEnumerable<int> lineNumbers)
+    {
+        foreach (int lineNumber in lineNumbers)
+        {
+            int lineIndex = lineNumber - 1;
+            if (lineIndex >= 0 && lineIndex < _document.LineCount) yield return lineIndex;
+        }
     }
 
     private void ClearMarkers()
@@ -1418,13 +1545,17 @@ public sealed class MainViewModel : ObservableObject
     private void RebuildMarkerList()
     {
         // 再読み込みでファイルが縮んでいることがあるので、範囲外のマーカーは落とす
-        _markedLines.RemoveWhere(i => i < 0 || i >= _document.LineCount);
+        foreach (int lineIndex in _markedLines.Keys.Where(i => i < 0 || i >= _document.LineCount).ToList())
+        {
+            _markedLines.Remove(lineIndex);
+        }
 
         _selectedMarker = null;
         Markers.Clear();
-        foreach (int lineIndex in _markedLines.Order())
+        foreach (int lineIndex in _markedLines.Keys.Order())
         {
-            Markers.Add(new MarkerItem(lineIndex + 1, MakePreview(_document.GetText(lineIndex))));
+            Markers.Add(new MarkerItem(lineIndex + 1, MakePreview(_document.GetText(lineIndex)),
+                                       _markedLines[lineIndex]));
         }
 
         // 一覧の選択は復元しない（復元するとジャンプが再発火してしまう）
@@ -1432,6 +1563,7 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(MarkerHeader));
         ClearMarkersCommand.RaiseCanExecuteChanged();
         RemoveMarkerCommand.RaiseCanExecuteChanged();
+        ChangeMarkerColorCommand.RaiseCanExecuteChanged();
         Lines.RefreshMarkers();
     }
 
@@ -1538,18 +1670,23 @@ public sealed class MainViewModel : ObservableObject
             ? $"　カーソル行: {Lines.ToLineNumber(SelectedIndex):N0}"
             : string.Empty;
 
+        // 「含む」を書いたのに行数が減らないのは意図した動作なので、その旨を出しておく
+        string highlightOnly = IncludeHighlightOnly && !string.IsNullOrWhiteSpace(IncludeText)
+            ? "　含む: 強調のみ"
+            : string.Empty;
+
         if (Lines.IsUnfiltered)
         {
-            StatusText = $"全 {total:N0} 行（フィルタなし）{position}";
+            StatusText = $"全 {total:N0} 行（フィルタなし）{highlightOnly}{position}";
         }
         else if (shown > _hitCount)
         {
             StatusText = $"全 {total:N0} 行 / 表示 {shown:N0} 行 ({ratio}%) "
-                       + $"= ヒット {_hitCount:N0} 行 + 前後 {shown - _hitCount:N0} 行{position}";
+                       + $"= ヒット {_hitCount:N0} 行 + 前後 {shown - _hitCount:N0} 行{highlightOnly}{position}";
         }
         else
         {
-            StatusText = $"全 {total:N0} 行 / 表示 {shown:N0} 行 ({ratio}%){position}";
+            StatusText = $"全 {total:N0} 行 / 表示 {shown:N0} 行 ({ratio}%){highlightOnly}{position}";
         }
     }
 
@@ -1678,6 +1815,7 @@ public sealed class MainViewModel : ObservableObject
             CaseSensitive = _settings.CaseSensitive;
             IncludeLogic = _settings.IncludeLogic;
             ExcludeLogic = _settings.ExcludeLogic;
+            IncludeHighlightOnly = _settings.IncludeHighlightOnly;
             AutoApply = _settings.AutoApply;
             IncludeAsText = _settings.IncludeAsText;
             ContextLines = Math.Clamp(_settings.ContextLines, 0, MaxContextLines);
@@ -1704,6 +1842,7 @@ public sealed class MainViewModel : ObservableObject
         _settings.CaseSensitive = CaseSensitive;
         _settings.IncludeLogic = IncludeLogic;
         _settings.ExcludeLogic = ExcludeLogic;
+        _settings.IncludeHighlightOnly = IncludeHighlightOnly;
         _settings.AutoApply = AutoApply;
         _settings.IncludeAsText = IncludeAsText;
         _settings.ContextLines = ContextLines;

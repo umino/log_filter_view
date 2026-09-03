@@ -13,6 +13,9 @@ public sealed class FilterPreset
     public LogicMode IncludeLogic { get; set; } = LogicMode.Or;
     public LogicMode ExcludeLogic { get; set; } = LogicMode.Or;
 
+    /// <summary>「含む」を絞り込みには使わず、強調表示だけに使うか。</summary>
+    public bool IncludeHighlightOnly { get; set; }
+
     public override string ToString() => Name;
 }
 
@@ -36,6 +39,9 @@ public sealed class AppSettings
     public LogicMode ExcludeLogic { get; set; } = LogicMode.Or;
     public bool AutoApply { get; set; } = true;
     public int ContextLines { get; set; }
+
+    /// <summary>「含む」を絞り込みには使わず、強調表示だけに使うか（除外は効いたまま）。</summary>
+    public bool IncludeHighlightOnly { get; set; }
 
     /// <summary>「含む」を行ごとのリストではなく素のテキストとして編集するか。</summary>
     public bool IncludeAsText { get; set; }

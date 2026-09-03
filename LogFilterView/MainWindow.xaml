@@ -39,6 +39,8 @@
                         Executed="CopyWithLineNumbersExecuted" CanExecute="CopyCanExecute" />
         <CommandBinding Command="{x:Static local:MainWindow.ToggleMarkerCommand}"
                         Executed="ToggleMarkerExecuted" CanExecute="SelectionRequired" />
+        <CommandBinding Command="{x:Static local:MainWindow.SetMarkerColorCommand}"
+                        Executed="SetMarkerColorExecuted" CanExecute="SelectionRequired" />
         <CommandBinding Command="{x:Static local:MainWindow.ExpandAroundCommand}"
                         Executed="ExpandAroundExecuted" CanExecute="SelectionRequired" />
         <CommandBinding Command="{x:Static local:MainWindow.FocusSearchCommand}" Executed="FocusSearchExecuted" />
@@ -94,6 +96,15 @@
                 <Separator />
                 <MenuItem Header="マーカーの ON/OFF(_M)" InputGestureText="Ctrl+M"
                           Command="{x:Static local:MainWindow.ToggleMarkerCommand}" />
+                <MenuItem Header="マーカーの色(_C)"
+                          ToolTip="選択している行にその色でマーカーを付けます">
+                    <MenuItem Header="橙" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="0" />
+                    <MenuItem Header="赤" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="1" />
+                    <MenuItem Header="黄" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="2" />
+                    <MenuItem Header="緑" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="3" />
+                    <MenuItem Header="青" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="4" />
+                    <MenuItem Header="紫" Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="5" />
+                </MenuItem>
                 <MenuItem Header="マーカーをすべて解除" Command="{Binding ClearMarkersCommand}" />
                 <MenuItem Header="前後の展開をすべて解除" Command="{Binding ClearExpansionsCommand}" />
             </MenuItem>
@@ -212,6 +223,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" MinHeight="54" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" MinHeight="54" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -273,7 +285,13 @@
                                      ToolTip="1 行に 1 パターン。空欄なら全行が対象。# で始まる行は OFF（コメント）扱いです。" />
                         </Grid>
 
-                        <DockPanel Grid.Row="3" Margin="0,10,0,2">
+                        <!-- 「含む」を絞り込みに使うか、色だけに使うかの切り替え -->
+                        <CheckBox Grid.Row="3" Margin="0,4,0,0"
+                                  Content="行は絞り込まず、強調だけする"
+                                  IsChecked="{Binding IncludeHighlightOnly}"
+                                  ToolTip="ON にすると全行が表示されたまま、含む語には色だけが付きます。除外はそのまま効きます。" />
+
+                        <DockPanel Grid.Row="4" Margin="0,10,0,2">
                             <TextBlock Text="除外 (negative words)" Style="{StaticResource SectionHeader}" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                 <RadioButton Content="OR" GroupName="ExcLogic" Margin="0,0,6,0" VerticalAlignment="Center"
@@ -285,11 +303,11 @@
                             </StackPanel>
                         </DockPanel>
 
-                        <TextBox Grid.Row="4" Style="{StaticResource PatternBox}"
+                        <TextBox Grid.Row="5" Style="{StaticResource PatternBox}"
                                  Text="{Binding ExcludeText, UpdateSourceTrigger=PropertyChanged}"
                                  ToolTip="ここに一致した行は、含む条件を満たしていても表示しません。" />
 
-                        <StackPanel Grid.Row="5" Margin="0,10,0,0"
+                        <StackPanel Grid.Row="6" Margin="0,10,0,0"
                                     ToolTip="含む・除外の書き方を決めます。右上の検索ボックスにも同じ設定が使われます。">
                             <TextBlock Text="パターンの解釈" Style="{StaticResource SectionHeader}" />
                             <StackPanel Orientation="Horizontal">
@@ -306,7 +324,7 @@
                         </StackPanel>
 
                         <!-- 上の条件を確定させる操作。条件のすぐ下に置く -->
-                        <WrapPanel Grid.Row="6" Margin="0,10,0,0">
+                        <WrapPanel Grid.Row="7" Margin="0,10,0,0">
                             <Button Content="適用" Command="{Binding ApplyFilterCommand}"
                                     Padding="14,4" Margin="0,0,8,4" ToolTip="Ctrl+Enter" />
                             <Button Content="クリア" Command="{Binding ClearFilterCommand}"
@@ -317,7 +335,7 @@
                                       ToolTip="ON のあいだは、入力を止めた少し後に自動で適用されます（適用ボタンは不要）" />
                         </WrapPanel>
 
-                        <TextBlock Grid.Row="7" Margin="0,8,0,0"
+                        <TextBlock Grid.Row="8" Margin="0,8,0,0"
                                    Text="{Binding FilterError}"
                                    Visibility="{Binding FilterError, Converter={StaticResource NullToVisibility}}"
                                    Foreground="#FFC62828" TextWrapping="Wrap" FontSize="11" />
@@ -356,11 +374,21 @@
                                  MaxHeight="200"
                                  ItemsSource="{Binding Markers}"
                                  SelectedItem="{Binding SelectedMarker}"
-                                 DisplayMemberPath="Display"
                                  HorizontalContentAlignment="Stretch"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  FontFamily="Consolas, MS Gothic"
                                  ToolTip="クリックするとその行へ移動します（抽出結果に無い場合は最も近い行へ）">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <!-- ログ本文の左端に出る帯と同じ色 -->
+                                        <Border Width="10" Height="10" CornerRadius="2" Margin="0,0,6,0"
+                                                VerticalAlignment="Center"
+                                                Background="{Binding Color.Accent}" />
+                                        <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
                             <ListBox.ItemContainerStyle>
                                 <Style TargetType="ListBoxItem">
                                     <Setter Property="ToolTip" Value="{Binding Preview}" />
@@ -368,6 +396,15 @@
                             </ListBox.ItemContainerStyle>
                             <ListBox.ContextMenu>
                                 <ContextMenu>
+                                    <MenuItem Header="色を変更">
+                                        <MenuItem Header="橙" Command="{Binding ChangeMarkerColorCommand}" CommandParameter="0" />
+                                        <MenuItem Header="赤" Command="{Binding ChangeMarkerColorCommand}" CommandParameter="1" />
+                                        <MenuItem Header="黄" Command="{Binding ChangeMarkerColorCommand}" CommandParameter="2" />
+                                        <MenuItem Header="緑" Command="{Binding ChangeMarkerColorCommand}" CommandParameter="3" />
+                                        <MenuItem Header="青" Command="{Binding ChangeMarkerColorCommand}" CommandParameter="4" />
+                                        <MenuItem Header="紫" Command="{Binding ChangeMarkerColorCommand}" CommandParameter="5" />
+                                    </MenuItem>
+                                    <Separator />
                                     <MenuItem Header="このマーカーを解除" Command="{Binding RemoveMarkerCommand}" />
                                     <MenuItem Header="すべて解除" Command="{Binding ClearMarkersCommand}" />
                                 </ContextMenu>
@@ -436,6 +473,20 @@
                             <Separator />
                             <MenuItem Header="マーカーの ON/OFF" InputGestureText="Ctrl+M"
                                       Command="{x:Static local:MainWindow.ToggleMarkerCommand}" />
+                            <MenuItem Header="マーカーの色">
+                                <MenuItem Header="橙"
+                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="0" />
+                                <MenuItem Header="赤"
+                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="1" />
+                                <MenuItem Header="黄"
+                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="2" />
+                                <MenuItem Header="緑"
+                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="3" />
+                                <MenuItem Header="青"
+                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="4" />
+                                <MenuItem Header="紫"
+                                          Command="{x:Static local:MainWindow.SetMarkerColorCommand}" CommandParameter="5" />
+                            </MenuItem>
                             <Separator />
                             <MenuItem Header="この行の前後を展開">
                                 <MenuItem Header="前後 5 行"
