@@ -1,6 +1,6 @@
-# LogFilterView
+# Sudare（簾）
 
-ログ閲覧に特化した Windows 向けテキストビューア（C# / WPF / .NET 8）。
+見たい行だけを残して読む、ログ閲覧に特化した Windows 向けテキストビューア（C# / WPF / .NET 8）。
 
 **positive words（含む語）** と **negative words（除外語）** のリストを入力すると、
 条件に一致した行だけを抜き出して表示します。100MB 級のログでも操作感が落ちないことを目標に作っています。
@@ -77,7 +77,7 @@
 - 前後行数の変更も個別展開も **照合をやり直さない**ため、124 万行でも数ミリ秒で反映される
 
 ### プロジェクト
-- 抽出条件・マーカー・表示設定・対象ファイルへの参照を `.lfvproj`（JSON）に保存できる
+- 抽出条件・マーカー・表示設定・対象ファイルへの参照を `.sudare`（JSON）に保存できる
   （`Ctrl+Shift+S` / `Ctrl+Shift+O`、ドラッグ＆ドロップとコマンドライン引数にも対応）
 - **ログ本体は含まない**。参照先のパスだけを記録する
 - 対象ファイルのパスは絶対パスと「プロジェクトからの相対パス」の両方を保存するので、
@@ -86,7 +86,16 @@
 - 保存される内容: 対象ファイル / 文字コード / positive・negative / 検索方法 / 大文字小文字 /
   AND・OR / 強調のみ / 前後 n 行 / マーカー（色を含む） /
   折り返し・行番号・強調・フォント / 検索語 / カーソル行
-- 項目を増やしても古い `.lfvproj` はそのまま開ける（無い項目は既定値になる）
+- 項目を増やしても古いプロジェクトはそのまま開ける（無い項目は既定値になる）
+
+#### 旧名 LogFilterView からの移行
+本アプリは **LogFilterView** から **Sudare** に改名しました。既存のデータは次のように扱います。
+
+| 対象 | 扱い |
+|---|---|
+| プロジェクト `.lfvproj` | **読み込みのみ対応。** 開くダイアログ・ドラッグ＆ドロップ・コマンドライン引数のいずれでもそのまま開ける |
+| 〃 の保存 | 旧形式は上書きしない。`保存` を押すと `.sudare` での名前を付けて保存になる（読み込み時にステータスバーで予告） |
+| 設定 `%APPDATA%\LogFilterView\settings.json` | 新しい `%APPDATA%\Sudare\settings.json` がまだ無いときだけ読み込んで引き継ぐ。書き戻しは常に新しい側で、**古いファイルは変更しない** |
 - プロジェクトが参照しているものとは別のログを開くと、関連付けは自動的に外れる
   （「プロジェクトを保存」が別のログを指すよう黙って書き換わるのを防ぐため）
 - クリップボードから読み込んだ内容はファイル参照を持たないため保存できない
@@ -123,7 +132,7 @@
 - `Ctrl+M`（色を指定しない ON/OFF）は、**直近に使った色**で付く
 - 帯・行背景・行番号の 3 か所が、選んだ色の濃さ違いでまとめて変わる
 - 一覧にも同じ色の見本が並ぶので、どの印がどの色かを左ペインだけで把握できる
-- 色はプロジェクトに保存される。色を持たない従来の `.lfvproj` は既定色（橙）として読み込む
+- 色はプロジェクトに保存される。色を持たない古いプロジェクトは既定色（橙）として読み込む
 
 ### 検索方法（3 種類）
 | モード | 説明 | 例 |
@@ -146,7 +155,7 @@
 - フォント種別・サイズの変更（`Ctrl++` / `Ctrl+-` / `Ctrl+0`）
 - 表示中の行に対する **インクリメンタル検索**（`F3` / `Shift+F3`）と **指定行へのジャンプ**
 - 選択行のコピー（行番号付きも可）、ドラッグ＆ドロップでのファイルオープン、最近使ったファイル
-- ウィンドウ位置・フィルタ条件・プリセットなどは `%APPDATA%\LogFilterView\settings.json` に保存される
+- ウィンドウ位置・フィルタ条件・プリセットなどは `%APPDATA%\Sudare\settings.json` に保存される
 
 ### キーボードショートカット
 | キー | 動作 | キー | 動作 |
@@ -170,10 +179,10 @@
 dotnet build
 
 # 実行（引数にファイルパスを渡すとそのまま開く）
-dotnet run --project LogFilterView -- C:\path\to\app.log
+dotnet run --project Sudare -- C:\path\to\app.log
 
 # 単一ファイルの実行可能ファイルを publish/ に出力
-dotnet publish LogFilterView\LogFilterView.csproj -c Release -r win-x64 `
+dotnet publish Sudare\Sudare.csproj -c Release -r win-x64 `
   -p:PublishSingleFile=true -p:SelfContained=false -o publish\
 ```
 
@@ -231,7 +240,7 @@ dotnet publish LogFilterView\LogFilterView.csproj -c Release -r win-x64 `
 ## プロジェクト構成
 
 ```
-LogFilterView/
+Sudare/
 ├── Models/
 │   ├── LogDocument.cs           読み込み(ファイル/クリップボード)・行インデックス・LineAccessor
 │   ├── FilterEngine.cs          フィルタのコンパイルと並列適用
@@ -241,8 +250,8 @@ LogFilterView/
 │   └── Enums.cs
 ├── Services/
 │   ├── LogExporter.cs           抽出結果の書き出し
-│   ├── ProjectFile.cs           .lfvproj の読み書きとパス解決
-│   ├── SettingsService.cs       設定の JSON 永続化
+│   ├── ProjectFile.cs           .sudare の読み書きとパス解決（旧 .lfvproj は読み込みのみ）
+│   ├── SettingsService.cs       設定の JSON 永続化（改名前の保存先からの引き継ぎを含む）
 │   └── AppSettings.cs
 ├── ViewModels/
 │   ├── MainViewModel.cs         画面全体の状態とコマンド
