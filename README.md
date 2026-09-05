@@ -1,6 +1,11 @@
+<img src="docs/icon.png" width="96" align="left" alt="Sudare" hspace="12" vspace="4">
+
 # Sudare（簾）
 
 見たい行だけを残して読む、ログ閲覧に特化した Windows 向けテキストビューア（C# / WPF / .NET 8）。
+
+<br clear="left">
+
 
 **positive words（含む語）** と **negative words（除外語）** のリストを入力すると、
 条件に一致した行だけを抜き出して表示します。100MB 級のログでも操作感が落ちないことを目標に作っています。
@@ -188,6 +193,22 @@ dotnet publish Sudare\Sudare.csproj -c Release -r win-x64 `
 
 必要環境: .NET 8 デスクトップランタイム（x64）。
 
+### アイコン
+
+`Sudare/Sudare.ico`（16 / 24 / 32 / 48 / 64 / 128 / 256 px、256 のみ PNG 圧縮）を
+`ApplicationIcon` として exe に埋め込んでいます。
+
+図柄は名前どおりの**簾**で、横に並んだ桟をそのままログの行に見立て、
+抽出で残った 2 本だけを本文と同じ強調色（黄・緑）で塗っています。
+縦に走る 2 本の綴じ糸は背景色で桟を切り抜いて表現していますが、
+線が 1px を割ってかえって滲むだけになる 48px 未満では描きません。
+
+作図はコードで持っており、色・本数・比率を変えて焼き直せます。
+
+```powershell
+dotnet run --project tools\icongen -- Sudare\
+```
+
 ---
 
 ## パフォーマンス
@@ -263,7 +284,8 @@ Sudare/
 │   ├── MarkerPalette.cs         マーカーの色（帯・行背景・行番号の 3 色を 1 組で持つ）
 │   ├── Converters.cs / InputDialog.xaml
 ├── MainWindow.xaml(.cs)
-└── App.xaml(.cs)
+├── App.xaml(.cs)
+└── Sudare.ico                   exe に埋め込むアイコン（生成元は tools/icongen）
 ```
 
 MVVM 構成。外部依存は `System.Text.Encoding.CodePages`（Shift_JIS 等のため）のみです。

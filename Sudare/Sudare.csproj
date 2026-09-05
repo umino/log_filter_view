@@ -9,7 +9,9 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Sudare</AssemblyName>
     <RootNamespace>Sudare</RootNamespace>
-    <ApplicationIcon></ApplicationIcon>
+    <!-- exe に埋め込まれ、エクスプローラ・タスクバー・ウィンドウのアイコンになる。
+         図柄の生成元は tools/icongen。 -->
+    <ApplicationIcon>Sudare.ico</ApplicationIcon>
     <Platforms>AnyCPU</Platforms>
     <!-- 大きなログを扱うのでサーバー GC ではなく、遅延の少ない同時実行 GC を使う -->
     <ServerGarbageCollection>false</ServerGarbageCollection>

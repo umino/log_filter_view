@@ -11,3 +11,7 @@
 
 # Visual Studio が CRLF を要求する
 *.sln     text eol=crlf
+
+# 画像は改行変換の対象外にする（text=auto の判定に任せると壊れうる）
+*.ico     binary
+*.png     binary
